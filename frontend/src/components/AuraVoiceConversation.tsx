@@ -17,6 +17,12 @@ const POLL_MS = 250
 interface Props {
   cameraActive: boolean
   onToggleCamera: (on: boolean) => void
+  /** Starts the same voice-signal analysis pipeline "Analyse Now" starts
+   * (Distress Signal, Synchronized Signals, Multimodal Timeline) - Speak
+   * with Aura IS that action for voice, combined into one interactive
+   * control rather than two separate buttons to press. */
+  onStartAnalysis: () => void
+  onStopAnalysis: () => void
   onOpenSupport: () => void
   onOpenInsights: () => void
   onOpenSafetyPlan: () => void
@@ -33,6 +39,8 @@ interface Props {
 export default function AuraVoiceConversation({
   cameraActive,
   onToggleCamera,
+  onStartAnalysis,
+  onStopAnalysis,
   onOpenSupport,
   onOpenInsights,
   onOpenSafetyPlan,
@@ -129,6 +137,9 @@ export default function AuraVoiceConversation({
       captureRef.current = capture
       pausedRef.current = false
       setPhase("listening")
+      // One interactive control: talking to Aura also starts the same
+      // voice-signal analysis "Analyse Now" would, rather than needing both.
+      onStartAnalysis()
     } catch {
       setPhase("idle")
     }
@@ -154,6 +165,7 @@ export default function AuraVoiceConversation({
     stopCapture()
     setPhase("ended")
     setFeedback(null)
+    onStopAnalysis()
   }
 
   const submitFeedback = async (result: FeelingAfter) => {

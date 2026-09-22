@@ -503,6 +503,33 @@ export default function App() {
    */
   const running = active || voiceActive
 
+  /**
+   * Speak with Aura IS the "analyse now" action for voice, combined into one
+   * interactive control - starting the conversation also starts the same
+   * voice-signal analysis pipeline (Distress Signal, Synchronized Signals,
+   * Multimodal Timeline) that "Analyse Now" starts below, using the mic
+   * permission the conversation already has. Camera stays a separate,
+   * explicit opt-in inside the conversation card, never bundled in here.
+   */
+  const startConversationAnalysis = async () => {
+    if (voiceActive) return
+    const online = await checkBackendHealth()
+    setBackendOnline(online)
+    if (!online) return
+    resetSessionState()
+    setSessionStart(Date.now())
+    setElapsed(0)
+    setFatalError(null)
+    setVoiceActive(true)
+  }
+
+  const stopConversationAnalysis = () => {
+    setActive(false)
+    setVoiceActive(false)
+    setSessionStart(null)
+    clearLiveReadings()
+  }
+
   const handleAnalyseNow = async () => {
     if (running) {
       setActive(false)
@@ -769,6 +796,8 @@ export default function App() {
           <AuraVoiceConversation
             cameraActive={active}
             onToggleCamera={(on) => setActive(on)}
+            onStartAnalysis={startConversationAnalysis}
+            onStopAnalysis={stopConversationAnalysis}
             onOpenSupport={() => setPage("support")}
             onOpenInsights={() => setPage("insights")}
             onOpenSafetyPlan={() => setPage("safety-plan")}
