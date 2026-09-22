@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Wind, PhoneCall, BookOpen, AlertTriangle, MessageCircle, Users, Stethoscope, ChevronRight } from "lucide-react"
+import { Wind, PhoneCall, BookOpen, AlertTriangle, MessageCircle, Users, Stethoscope, ChevronRight, ShieldCheck } from "lucide-react"
 import { ACTIVITIES, ActivityModal } from "./DailyCare"
 import { CareActivityType, setConsent, submitCareAction } from "../lib/twinApi"
 import { fetchSupportPathways } from "../lib/auraApi"
@@ -22,9 +22,10 @@ const EMERGENCY_RESOURCES = [
 interface Props {
   auraId: string
   onOpenCompanion: () => void
+  onOpenSafetyPlan: () => void
 }
 
-export default function Support({ auraId, onOpenCompanion }: Props) {
+export default function Support({ auraId, onOpenCompanion, onOpenSafetyPlan }: Props) {
   const [showActivity, setShowActivity] = useState(false)
   const [pathways, setPathways] = useState<{ pathway: string; reason: string; urgency: string }[] | null>(null)
 
@@ -47,6 +48,21 @@ export default function Support({ auraId, onOpenCompanion }: Props) {
         <h1 className="text-headline-lg text-on-surface mb-1">Support</h1>
         <p className="text-body-lg text-on-surface-variant">Calm exercises, someone to talk to, and help when it matters.</p>
       </header>
+
+      {/* My Safety Plan - kept above Calm Now so it's never buried */}
+      <button
+        onClick={onOpenSafetyPlan}
+        className="flex items-center justify-between gap-3 bg-primary-container/10 border border-primary/20 rounded-[24px] p-stack-md text-left hover:border-primary transition-colors"
+      >
+        <span className="flex items-center gap-3">
+          <ShieldCheck size={22} className="text-primary shrink-0" />
+          <span>
+            <span className="block text-headline-md text-on-surface">My Safety Plan</span>
+            <span className="block text-body-md text-on-surface-variant">Your warning signs, what helps, and who to contact — ready whenever you need it.</span>
+          </span>
+        </span>
+        <ChevronRight size={20} className="text-on-surface-variant shrink-0" />
+      </button>
 
       {/* Calm Now */}
       <section className="bg-surface-container-lowest rounded-[24px] shadow-ambient-md p-stack-md">

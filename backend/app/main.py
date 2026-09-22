@@ -87,7 +87,7 @@ from .schemas import (
 from .reasoning import generate_explanation
 from .sentiment import compute_sentiment
 from .smoothing import store as session_store
-from .api import auth_routes, chat, ivrs, sos
+from .api import auth_routes, chat, ivrs, safety_plan, sos
 from .core.config import settings
 from .services import groq_text_analysis
 
@@ -133,6 +133,7 @@ app.include_router(sos.router)
 app.include_router(aura_api.router)
 app.include_router(twin_api.router)
 app.include_router(risk_api.router)
+app.include_router(safety_plan.router)
 
 
 @app.get("/api/system/status")

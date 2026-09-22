@@ -15,6 +15,7 @@ import VictimHome from "./components/VictimHome"
 import WellbeingRiskPage from "./components/WellbeingRiskPage"
 import CheckIn from "./components/CheckIn"
 import Support from "./components/Support"
+import SafetyPlan from "./components/SafetyPlan"
 import HistoryPage from "./components/HistoryPage"
 import ProfilePage from "./components/ProfilePage"
 import AICompanion from "./components/AICompanion"
@@ -1048,8 +1049,13 @@ export default function App() {
             {page === "insights" && <WellbeingRiskPage onOpenCompanion={() => setPage("companion")} />}
             {page === "companion" && <AICompanion />}
             {page === "support" && (
-              <Support auraId={activeProfile} onOpenCompanion={() => setPage("companion")} />
+              <Support
+                auraId={activeProfile}
+                onOpenCompanion={() => setPage("companion")}
+                onOpenSafetyPlan={() => setPage("safety-plan")}
+              />
             )}
+            {page === "safety-plan" && <SafetyPlan />}
             {page === "history" && <HistoryPage />}
             {page === "profile" && <ProfilePage capabilities={voiceCaps} backendOnline={backendOnline} />}
           </>

@@ -279,6 +279,77 @@ class Consent(Base, TimestampMixin):
     )
 
 
+# --- Safety planning ---------------------------------------------------------
+#
+# Both tables are aura_id-scoped and per-user from day one, unlike the
+# separate twin_store.py SQLite store (a known, pre-existing, single-shared
+# prototype limitation flagged elsewhere in this codebase). Nothing here is
+# ever auto-shared or auto-dialled - see api/safety_plan.py.
+
+
+class TrustedContact(Base, TimestampMixin):
+    """A person the user has chosen to list as someone they can reach. Purely
+    informational - AURA never contacts this person itself; it only ever
+    displays what the user entered back to the user."""
+
+    __tablename__ = "trusted_contacts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    aura_id: Mapped[str] = mapped_column(String(40), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    relationship_label: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class SafetyPlan(Base, TimestampMixin):
+    """One editable safety plan per person, in the standard trauma-informed
+    safety-planning shape (warning signs / coping things / who to contact /
+    professional support). Edited by the user at any time; never generated,
+    auto-filled or shared without the user doing so explicitly."""
+
+    __tablename__ = "safety_plans"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    aura_id: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    warning_signs: Mapped[dict] = mapped_column(JSON, default=list)
+    coping_things: Mapped[dict] = mapped_column(JSON, default=list)
+    contact_ids: Mapped[dict] = mapped_column(JSON, default=list)  # TrustedContact.id list
+    professional_contact: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class InterventionOutcome(Base, TimestampMixin):
+    """Did a suggested coping action actually help THIS person, in THIS kind
+    of situation. The personalization signal for future recommendations -
+    never inferred, only recorded when the user answers "did that help?"."""
+
+    __tablename__ = "intervention_outcomes"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    aura_id: Mapped[str] = mapped_column(String(40), index=True)
+    situation: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    intervention_category: Mapped[str] = mapped_column(String(30))  # calm|reset|solve|restore|connect|reflect
+    intervention_type: Mapped[str] = mapped_column(String(40))
+    # better | slightly_better | same | worse
+    result: Mapped[str] = mapped_column(String(20))
+
+
+class FollowUp(Base, TimestampMixin):
+    """A self-scheduled, in-app-only reminder ("check in about sleep
+    tomorrow"). No push/SMS delivery exists in this codebase - surfaced as a
+    banner on next visit, never dispatched externally."""
+
+    __tablename__ = "follow_ups"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    aura_id: Mapped[str] = mapped_column(String(40), index=True)
+    topic: Mapped[str] = mapped_column(String(120))
+    scheduled_for: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # pending | done | skipped
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+
+
 # --- Analysis --------------------------------------------------------------
 
 

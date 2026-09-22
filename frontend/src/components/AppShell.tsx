@@ -10,6 +10,7 @@ export type Page =
   | "insights"
   | "companion"
   | "support"
+  | "safety-plan"
   | "history"
   | "profile"
   | "history-profile"
