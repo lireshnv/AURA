@@ -184,8 +184,9 @@ function CareReactionPanel({ kind, onDone }: { kind: ReactionKind; onDone: () =>
 /**
  * Interactive Companion daily-care panel: Feed / Water / Check-in / Activity,
  * a real Today checklist, and the SAME shared avatar (see AvatarModule) shown
- * full-size with its type/expression/customization controls - this is now
- * the one place the companion lives, since AI Companion is chat-only.
+ * full-size with its type/expression/customization controls - this is where
+ * you pick and customize the companion's look; AI Companion shows the same
+ * avatar reacting live to conversation instead.
  *
  * The companion is always a pet (dog/cat/robot/custom) or a plant, never a
  * generic human avatar: Feed + streak apply to a pet, Water applies to a
