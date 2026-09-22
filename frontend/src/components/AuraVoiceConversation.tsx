@@ -14,7 +14,7 @@ import { SafetyPanel, renderMarkdown } from "./AICompanion"
 type Phase = "idle" | "listening" | "thinking" | "speaking" | "paused" | "ended"
 type FeelingAfter = "better" | "slightly_better" | "same" | "worse" | "not_sure"
 
-const POLL_MS = 250
+const POLL_MS = 120
 const TRANSCRIPT_PREVIEW = 4
 
 const FOLLOWUP_MESSAGE: Record<FeelingAfter, string> = {
@@ -66,7 +66,8 @@ export default function AuraVoiceConversation({
   const [showCalmActivity, setShowCalmActivity] = useState(false)
   const [micError, setMicError] = useState<string | null>(null)
 
-  const { messages, safetyBlocks, sending, speaking, status, send, reset, greet } = useAuraConversation(language)
+  const { messages, safetyBlocks, sending, speaking, status, sendStreaming, interrupt, reset, greet } =
+    useAuraConversation(language)
 
   const captureRef = useRef<RollingAudioCapture | null>(null)
   const pollRef = useRef<number | null>(null)
@@ -81,15 +82,24 @@ export default function AuraVoiceConversation({
     storeLanguage(code)
   }
 
-  // --- Turn loop: pull finished utterances and run them through the exact
-  //     same send() the text Companion uses. Paused while Aura is speaking so
-  //     her own voice is never picked back up as a new turn. ---
+  // --- Turn loop: pull finished utterances and stream them through the same
+  //     sendStreaming() the text Companion's engine exposes. Also the
+  //     barge-in check: if the user starts talking while Aura is speaking,
+  //     her audio (and any remaining generation) is cancelled immediately
+  //     and the turn hands back, rather than waiting for her to finish. ---
   useEffect(() => {
     if (phase !== "listening" && phase !== "speaking") return
     pollRef.current = window.setInterval(async () => {
       const capture = captureRef.current
-      if (!capture || pausedRef.current || busyRef.current || speaking) return
+      if (!capture) return
       capture.resumeIfSuspended()
+
+      if (speaking && capture.isSpeaking) {
+        interrupt()
+        return
+      }
+      if (pausedRef.current || busyRef.current || speaking) return
+
       const utterance = capture.takeUtterance()
       if (!utterance) return
 
@@ -97,7 +107,7 @@ export default function AuraVoiceConversation({
       setTranscribing(true)
       const text = await transcribeVoice(utterance.blob)
       setTranscribing(false)
-      if (text && text.trim()) await send(text)
+      if (text && text.trim()) await sendStreaming(text)
       busyRef.current = false
     }, POLL_MS)
     return () => {
@@ -185,6 +195,7 @@ export default function AuraVoiceConversation({
 
   const pause = () => {
     pausedRef.current = true
+    interrupt()
     setPhase("paused")
   }
 
@@ -194,6 +205,7 @@ export default function AuraVoiceConversation({
   }
 
   const end = () => {
+    interrupt()
     stopCapture()
     setPhase("ended")
     setFeedback(null)
@@ -374,7 +386,7 @@ export default function AuraVoiceConversation({
           {phase === "listening" && messages.length === 2 && (
             <div className="flex flex-wrap justify-center gap-2 mt-5">
               <button
-                onClick={() => send("Talk more")}
+                onClick={() => sendStreaming("Talk more")}
                 className="rounded-full border border-outline-variant px-4 py-2 text-label-md text-on-surface hover:border-primary hover:bg-primary-container/10"
               >
                 Talk more
@@ -386,7 +398,7 @@ export default function AuraVoiceConversation({
                 Calm down
               </button>
               <button
-                onClick={() => send("I'm not sure")}
+                onClick={() => sendStreaming("I'm not sure")}
                 className="rounded-full border border-outline-variant px-4 py-2 text-label-md text-on-surface hover:border-primary hover:bg-primary-container/10"
               >
                 I'm not sure

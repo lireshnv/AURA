@@ -8,6 +8,7 @@ SESSION ISOLATION: every conversation is keyed by (aura_id, session_id).
 A caller can only ever read or write their own conversation, because the
 aura_id is taken from the authenticated token and never from the request body.
 """
+import json
 import logging
 import time
 import uuid
@@ -16,6 +17,7 @@ from threading import Lock
 from typing import Deque, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Response, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from ..services import chat_safety, chatbot_service
@@ -46,6 +48,9 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=MAX_MESSAGE_CHARS)
     session_id: Optional[str] = None
     language: Optional[str] = None
+    # True for the voice conversation - asks the model for short, spoken-
+    # style replies. The text Companion leaves this False.
+    voice_mode: bool = False
 
 
 class SpeakRequest(BaseModel):
@@ -146,7 +151,7 @@ async def chat(payload: ChatRequest, aura_id: str = Depends(resolve_aura_id)):
     with _conversation_lock:
         history = list(_conversations[key])
 
-    result = chatbot_service.chat(message, history, language=payload.language)
+    result = chatbot_service.chat(message, history, language=payload.language, voice_mode=payload.voice_mode)
 
     if result.status == "success" and result.reply:
         with _conversation_lock:
@@ -169,6 +174,75 @@ async def chat(payload: ChatRequest, aura_id: str = Depends(resolve_aura_id)):
         status=result.status,
         safety=safety_payload,
         used_web_search=result.used_web_search,
+    )
+
+
+@router.post("/stream")
+async def chat_stream_endpoint(payload: ChatRequest, aura_id: str = Depends(resolve_aura_id)):
+    """Streams one conversational turn as Server-Sent Events, for the voice
+    conversation's perceived latency - Aura's reply starts appearing (and can
+    start being spoken sentence-by-sentence) before generation finishes.
+
+    Event shapes (one JSON object per `data:` line):
+      {"type": "session", "session_id": "..."}   - once, first
+      {"type": "delta", "text": "..."}            - zero or more
+      {"type": "safety", ...}                     - only if triggered
+      {"type": "done", "used_web_search": false}  - once, last
+
+    No tool-call support here (see chatbot_service.chat_stream's docstring) -
+    the text Companion keeps using the non-streaming /api/chat for that.
+    """
+    message = payload.message.strip()
+    if not message:
+        raise HTTPException(status_code=422, detail="Message cannot be empty.")
+
+    if _rate_limited(aura_id):
+        raise HTTPException(
+            status_code=429,
+            detail="You're sending messages very quickly. Please wait a moment.",
+        )
+
+    session_id = payload.session_id or str(uuid.uuid4())
+    key = (aura_id, session_id)
+
+    safety = chat_safety.check_message(message)
+
+    with _conversation_lock:
+        history = list(_conversations[key])
+
+    def _event(payload_obj: Dict) -> str:
+        return f"data: {json.dumps(payload_obj)}\n\n"
+
+    def generate():
+        yield _event({"type": "session", "session_id": session_id})
+        full_text = ""
+        for delta in chatbot_service.chat_stream(
+            message, history, language=payload.language, voice_mode=payload.voice_mode
+        ):
+            full_text += delta
+            yield _event({"type": "delta", "text": delta})
+
+        if full_text.strip():
+            with _conversation_lock:
+                convo = _conversations[key]
+                convo.append({"role": "user", "content": message})
+                convo.append({"role": "assistant", "content": full_text})
+
+        if safety.triggered:
+            yield _event(
+                {
+                    "type": "safety",
+                    "severity": safety.severity,
+                    "message": safety.message,
+                    "resources": safety.resources,
+                }
+            )
+        yield _event({"type": "done", "used_web_search": False})
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 

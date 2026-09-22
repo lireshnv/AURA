@@ -23,7 +23,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, Iterator, List, Optional
 
 logger = logging.getLogger("aura.chatbot")
 
@@ -206,7 +206,36 @@ def _language_instruction(language: Optional[str]) -> Optional[str]:
     )
 
 
-def chat(message: str, history: Optional[List[Dict]] = None, language: Optional[str] = None) -> ChatResult:
+VOICE_MODE_NOTE = (
+    "The user is talking to you by voice right now, not reading text. Reply in "
+    "1-3 short, natural spoken sentences - the way a person actually talks, not "
+    "a written paragraph. Only go longer if the user explicitly asks for detail "
+    "or a list of resources."
+)
+
+
+def _build_messages(
+    message: str, history: List[Dict], language: Optional[str], voice_mode: bool
+) -> List[Dict]:
+    system_prompt = _load_system_prompt()
+    language_note = _language_instruction(language)
+    if language_note:
+        system_prompt = f"{system_prompt}\n\n## Language\n\n{language_note}"
+    if voice_mode:
+        system_prompt = f"{system_prompt}\n\n## Voice conversation\n\n{VOICE_MODE_NOTE}"
+
+    messages: List[Dict] = [{"role": "system", "content": system_prompt}]
+    messages.extend(history)
+    messages.append({"role": "user", "content": message})
+    return messages
+
+
+def chat(
+    message: str,
+    history: Optional[List[Dict]] = None,
+    language: Optional[str] = None,
+    voice_mode: bool = False,
+) -> ChatResult:
     """Sends one turn to Groq, handling the tool-call round trip.
 
     Mirrors the original two-call flow: first call may return tool calls; the
@@ -224,14 +253,7 @@ def chat(message: str, history: Optional[List[Dict]] = None, language: Optional[
         logger.warning("Companion unavailable: %s", code)
         return ChatResult(reply=USER_FACING_ERROR, status="unavailable", error_code=code)
 
-    system_prompt = _load_system_prompt()
-    language_note = _language_instruction(language)
-    if language_note:
-        system_prompt = f"{system_prompt}\n\n## Language\n\n{language_note}"
-
-    messages: List[Dict] = [{"role": "system", "content": system_prompt}]
-    messages.extend(history)
-    messages.append({"role": "user", "content": message})
+    messages = _build_messages(message, history, language, voice_mode)
 
     # Bounded tool-call loop rather than a fixed one-search-then-answer flow.
     # The India-context prompt actively encourages searching for state- or
@@ -308,6 +330,58 @@ def chat(message: str, history: Optional[List[Dict]] = None, language: Optional[
         logger.exception("Groq request failed")
         code = type(exc).__name__
         return ChatResult(reply=USER_FACING_ERROR, status="error", error_code=code)
+
+
+def chat_stream(
+    message: str,
+    history: Optional[List[Dict]] = None,
+    language: Optional[str] = None,
+    voice_mode: bool = False,
+) -> Iterator[str]:
+    """Streams text deltas for one turn, for the voice conversation's
+    perceived latency - Aura's reply starts appearing (and can start being
+    spoken, sentence by sentence, by the caller) before the model has
+    finished generating it.
+
+    DELIBERATE SIMPLIFICATION vs chat(): no web-search tool round trip here.
+    Tool calls do not stream cleanly (Groq sends them as accumulating
+    argument-string deltas, and this endpoint exists specifically for the
+    low-latency voice path where a multi-second tool round trip would defeat
+    the point). A caller whose message would have needed a search still gets
+    a normal, honest reply - just without live web results - rather than a
+    broken or blocked stream. The text Companion keeps using chat() with
+    full tool support.
+
+    Yields plain text deltas only. Raises nothing - errors yield the same
+    user-facing error string chat() would return, as a single chunk.
+    """
+    history = history or []
+    if not message or not message.strip():
+        return
+
+    try:
+        client = _get_client()
+    except RuntimeError as exc:
+        logger.warning("Companion unavailable: %s", exc)
+        yield USER_FACING_ERROR
+        return
+
+    messages = _build_messages(message, history, language, voice_mode)
+
+    try:
+        stream = client.chat.completions.create(
+            model=MODEL,
+            messages=messages,
+            max_tokens=MAX_TOKENS,
+            stream=True,
+        )
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content if chunk.choices else None
+            if delta:
+                yield delta
+    except Exception:  # noqa: BLE001
+        logger.exception("Groq streaming request failed")
+        yield USER_FACING_ERROR
 
 
 def transcribe(audio_bytes: bytes, filename: str = "audio.webm") -> Dict:

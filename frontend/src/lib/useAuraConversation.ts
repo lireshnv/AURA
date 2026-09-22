@@ -9,6 +9,12 @@
  * lifetime as the auth token - cleared when the tab closes, not before), so
  * moving between the text Companion and Speak-with-Aura within one visit
  * continues the same conversation instead of starting over.
+ *
+ * STREAMING + PROGRESSIVE SPEECH: sendStreaming() consumes the backend's SSE
+ * text stream and speaks completed sentences as they arrive (via an ordered
+ * TTS queue) rather than waiting for the full reply - Aura's voice starts
+ * while the rest of the reply is still generating. interrupt() (barge-in)
+ * cancels both the in-flight generation and whatever is queued to speak.
  */
 import { useCallback, useEffect, useRef, useState } from "react"
 import {
@@ -21,6 +27,7 @@ import {
   sendChatMessage,
   speakText,
   startNewConversation,
+  streamChatMessage,
 } from "./chatApi"
 
 const SESSION_STORAGE_KEY = "aura_companion_session_id"
@@ -42,6 +49,21 @@ function setStoredSession(id: string | null) {
   }
 }
 
+/** Strips the light Markdown the model uses (bold/italic/code marks) before
+ * handing text to TTS - spoken "asterisk asterisk" is worse than nothing. */
+function stripMarkdownForSpeech(text: string): string {
+  return text
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .trim()
+}
+
+// Matches the shortest run of text up to and including a sentence-ending
+// punctuation mark followed by whitespace or end-of-string - used to find
+// completed sentences inside a still-growing stream buffer.
+const SENTENCE_END = /^[\s\S]*?[.!?](?:\s|$)/
+
 export function useAuraConversation(language: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [safetyBlocks, setSafetyBlocks] = useState<Record<number, SafetyBlock>>({})
@@ -58,12 +80,15 @@ export function useAuraConversation(language: string) {
     languageRef.current = language
   }, [language])
 
+  // --- Ordered speech queue: sentences are spoken strictly in the order
+  //     they were enqueued, regardless of how long each TTS fetch takes. ---
+  const pendingTextRef = useRef<string[]>([])
+  const workerRunningRef = useRef(false)
+  const interruptResolverRef = useRef<(() => void) | null>(null)
+  const streamAbortRef = useRef<AbortController | null>(null)
+
   useEffect(() => {
     const audio = new Audio()
-    audio.addEventListener("play", () => setSpeaking(true))
-    audio.addEventListener("ended", () => setSpeaking(false))
-    audio.addEventListener("pause", () => setSpeaking(false))
-    audio.addEventListener("error", () => setSpeaking(false))
     audioRef.current = audio
     return () => {
       audio.pause()
@@ -97,20 +122,65 @@ export function useAuraConversation(language: string) {
     }
   }, [])
 
-  const playReply = useCallback(
-    async (text: string) => {
-      if (!status?.tts_available || !audioRef.current) return
+  const runQueueWorker = useCallback(async () => {
+    if (workerRunningRef.current) return
+    workerRunningRef.current = true
+    setSpeaking(true)
+    while (pendingTextRef.current.length > 0) {
+      const text = pendingTextRef.current.shift()!
       const url = await speakText(text)
-      if (!url) return
-      audioRef.current.src = url
-      try {
-        await audioRef.current.play()
-      } catch {
-        /* autoplay blocked or playback failed - the text reply already shown */
-      }
+      const audio = audioRef.current
+      if (!url || !audio) continue
+      await new Promise<void>((resolve) => {
+        interruptResolverRef.current = resolve
+        const cleanup = () => {
+          audio.removeEventListener("ended", onEnd)
+          audio.removeEventListener("error", onEnd)
+          interruptResolverRef.current = null
+        }
+        const onEnd = () => {
+          cleanup()
+          resolve()
+        }
+        audio.addEventListener("ended", onEnd)
+        audio.addEventListener("error", onEnd)
+        audio.src = url
+        audio.play().catch(() => {
+          cleanup()
+          resolve()
+        })
+      })
+    }
+    workerRunningRef.current = false
+    setSpeaking(false)
+  }, [])
+
+  /** Queues one sentence/utterance to be spoken, in order. */
+  const enqueueSpeech = useCallback(
+    (text: string) => {
+      const clean = stripMarkdownForSpeech(text)
+      if (!status?.tts_available || !clean) return
+      pendingTextRef.current.push(clean)
+      runQueueWorker()
     },
-    [status?.tts_available]
+    [status?.tts_available, runQueueWorker]
   )
+
+  const playReply = useCallback((text: string) => enqueueSpeech(text), [enqueueSpeech])
+
+  /** Barge-in: stop whatever Aura is saying/generating, right now. */
+  const interrupt = useCallback(() => {
+    pendingTextRef.current = []
+    streamAbortRef.current?.abort()
+    streamAbortRef.current = null
+    audioRef.current?.pause()
+    interruptResolverRef.current?.()
+    interruptResolverRef.current = null
+    setSpeaking(false)
+    setSending(false)
+  }, [])
+
+  const stopSpeaking = interrupt
 
   const send = useCallback(
     async (text: string) => {
@@ -140,9 +210,72 @@ export function useAuraConversation(language: string) {
     [sending, sessionId, playReply, language]
   )
 
-  const stopSpeaking = useCallback(() => {
-    audioRef.current?.pause()
-  }, [])
+  /**
+   * The voice-conversation path: streams Aura's reply and speaks completed
+   * sentences as they're detected, instead of waiting for the whole thing.
+   */
+  const sendStreaming = useCallback(
+    async (text: string) => {
+      if (!text.trim() || sending) return
+
+      setMessages((m) => [...m, { role: "user", content: text }])
+      setSending(true)
+
+      let assistantIndex = -1
+      setMessages((m) => {
+        assistantIndex = m.length
+        return [...m, { role: "assistant", content: "" }]
+      })
+
+      let buffer = ""
+      let spokenUpTo = 0
+      const controller = new AbortController()
+      streamAbortRef.current = controller
+
+      await streamChatMessage(
+        text,
+        sessionId,
+        languageRef.current,
+        true,
+        {
+          onSessionId: (id) => {
+            setSessionId(id)
+            setStoredSession(id)
+          },
+          onDelta: (delta) => {
+            buffer += delta
+            setMessages((m) => {
+              if (assistantIndex < 0 || assistantIndex >= m.length) return m
+              const next = [...m]
+              next[assistantIndex] = { role: "assistant", content: buffer }
+              return next
+            })
+            const rest = buffer.slice(spokenUpTo)
+            const match = rest.match(SENTENCE_END)
+            if (match && match[0].trim()) {
+              enqueueSpeech(match[0])
+              spokenUpTo += match[0].length
+            }
+          },
+          onSafety: (safety) => {
+            setSupportive(true)
+            setSafetyBlocks((s) => ({ ...s, [assistantIndex]: safety }))
+          },
+        },
+        controller.signal
+      ).catch(() => {
+        /* an aborted/dropped stream (e.g. barge-in) is not an error - keep
+           whatever text arrived */
+      })
+
+      const tail = buffer.slice(spokenUpTo).trim()
+      if (tail && streamAbortRef.current === controller) enqueueSpeech(tail)
+
+      if (streamAbortRef.current === controller) streamAbortRef.current = null
+      setSending(false)
+    },
+    [sending, sessionId, enqueueSpeech]
+  )
 
   /**
    * A scripted opener/acknowledgement, spoken through the same TTS engine as
@@ -161,6 +294,7 @@ export function useAuraConversation(language: string) {
   )
 
   const reset = useCallback(async () => {
+    interrupt()
     if (sessionId) await clearConversation(sessionId)
     const fresh = await startNewConversation()
     setSessionId(fresh)
@@ -168,7 +302,7 @@ export function useAuraConversation(language: string) {
     setMessages([])
     setSafetyBlocks({})
     setSupportive(false)
-  }, [sessionId])
+  }, [sessionId, interrupt])
 
   return {
     messages,
@@ -180,6 +314,8 @@ export function useAuraConversation(language: string) {
     status,
     ready,
     send,
+    sendStreaming,
+    interrupt,
     reset,
     stopSpeaking,
     greet,

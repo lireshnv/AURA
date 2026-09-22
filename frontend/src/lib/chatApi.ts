@@ -94,6 +94,85 @@ export async function sendChatMessage(
   }
 }
 
+export interface StreamHandlers {
+  onSessionId?: (id: string) => void
+  onDelta: (text: string) => void
+  onSafety?: (safety: SafetyBlock) => void
+  onDone?: () => void
+}
+
+/**
+ * Streams one turn as Server-Sent Events so the reply can start appearing
+ * (and being spoken, sentence by sentence, by the caller) before generation
+ * finishes. Falls back silently to nothing further on any read error - the
+ * caller already has whatever text arrived before the failure.
+ */
+export async function streamChatMessage(
+  message: string,
+  sessionId: string | null,
+  language: string | undefined,
+  voiceMode: boolean,
+  handlers: StreamHandlers,
+  signal?: AbortSignal
+): Promise<void> {
+  let res: Response
+  try {
+    res = await fetch(`${CHAT}/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, session_id: sessionId, language, voice_mode: voiceMode }),
+      signal,
+    })
+  } catch {
+    handlers.onDelta(USER_FACING_ERROR)
+    handlers.onDone?.()
+    return
+  }
+  if (!res.ok || !res.body) {
+    handlers.onDelta(USER_FACING_ERROR)
+    handlers.onDone?.()
+    return
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ""
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split("\n\n")
+      buffer = lines.pop() ?? ""
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed.startsWith("data:")) continue
+        let event: { type: string; [k: string]: unknown }
+        try {
+          event = JSON.parse(trimmed.slice(5).trim())
+        } catch {
+          continue
+        }
+        if (event.type === "session" && typeof event.session_id === "string") {
+          handlers.onSessionId?.(event.session_id)
+        } else if (event.type === "delta" && typeof event.text === "string") {
+          handlers.onDelta(event.text)
+        } else if (event.type === "safety") {
+          handlers.onSafety?.(event as unknown as SafetyBlock)
+        } else if (event.type === "done") {
+          handlers.onDone?.()
+        }
+      }
+    }
+  } catch (err) {
+    if ((err as Error)?.name !== "AbortError") {
+      /* a dropped stream mid-reply is non-fatal; whatever text arrived stays on screen */
+    }
+  }
+}
+
+const USER_FACING_ERROR = "Sorry, I'm temporarily unavailable. Please try again."
+
 export async function fetchHistory(sessionId: string): Promise<ChatMessage[]> {
   try {
     const res = await fetch(`${CHAT}/history?session_id=${encodeURIComponent(sessionId)}`)
