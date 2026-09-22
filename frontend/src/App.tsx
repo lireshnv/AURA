@@ -13,7 +13,10 @@ import HistoryProfilePage from "./components/HistoryProfilePage"
 import CounsellorDashboard, { resetSyntheticDataSeed } from "./components/CounsellorDashboard"
 import VictimHome from "./components/VictimHome"
 import WellbeingRiskPage from "./components/WellbeingRiskPage"
-import { Tab as WellbeingTab } from "./components/MyWellbeing"
+import CheckIn from "./components/CheckIn"
+import Support from "./components/Support"
+import HistoryPage from "./components/HistoryPage"
+import ProfilePage from "./components/ProfilePage"
 import AICompanion from "./components/AICompanion"
 import IvrsCallPortal from "./components/IvrsCall/IvrsCallPortal"
 import AdminDashboard from "./components/AdminDashboard"
@@ -720,11 +723,7 @@ export default function App() {
     if (!running) handleAnalyseNow()
   }
 
-  const [wellbeingInitialTab, setWellbeingInitialTab] = useState<WellbeingTab>("overview")
-  const handleOpenCheckin = () => {
-    setWellbeingInitialTab("checkin")
-    setPage("wellbeing-risk")
-  }
+  const handleOpenCheckin = () => setPage("checkin")
 
   const heroDistressScore = distressSignal?.score ?? liveDistress.score
   const heroConfidence = distressSignal?.confidence ?? fusion?.emotion.confidence ?? null
@@ -1035,23 +1034,24 @@ export default function App() {
                 onOpenAnalysis={handleStartFromHome}
                 onOpenCheckin={handleOpenCheckin}
                 onOpenCompanion={() => setPage("companion")}
-                onOpenWellbeing={() => {
-                  setWellbeingInitialTab("overview")
-                  setPage("wellbeing-risk")
-                }}
+                onOpenWellbeing={() => setPage("insights")}
+              />
+            )}
+            {page === "checkin" && (
+              <CheckIn
+                onDone={() => setPage("home")}
+                onOpenCompanion={() => setPage("companion")}
+                onOpenSupport={() => setPage("support")}
               />
             )}
             {page === "analysis" && analysisView}
-            {page === "wellbeing-risk" && (
-              <WellbeingRiskPage
-                onOpenCompanion={() => setPage("companion")}
-                initialWellbeingTab={wellbeingInitialTab}
-              />
-            )}
+            {page === "insights" && <WellbeingRiskPage onOpenCompanion={() => setPage("companion")} />}
             {page === "companion" && <AICompanion />}
-            {page === "history-profile" && (
-              <HistoryProfilePage capabilities={voiceCaps} backendOnline={backendOnline} />
+            {page === "support" && (
+              <Support auraId={activeProfile} onOpenCompanion={() => setPage("companion")} />
             )}
+            {page === "history" && <HistoryPage />}
+            {page === "profile" && <ProfilePage capabilities={voiceCaps} backendOnline={backendOnline} />}
           </>
         )}
 

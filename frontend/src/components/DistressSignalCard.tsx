@@ -3,9 +3,9 @@ import { DistressSignalResponse } from "../types"
 
 const LEVEL_STYLE: Record<string, { bar: string; text: string; chip: string; label: string }> = {
   GREEN: {
-    bar: "bg-emerald-500",
-    text: "text-emerald-700",
-    chip: "bg-emerald-50 border-emerald-200 text-emerald-700",
+    bar: "bg-secondary",
+    text: "text-on-secondary-container",
+    chip: "bg-secondary-container/20 border-secondary/20 text-on-secondary-container",
     label: "GREEN",
   },
   AMBER: {
@@ -15,17 +15,17 @@ const LEVEL_STYLE: Record<string, { bar: string; text: string; chip: string; lab
     label: "AMBER",
   },
   RED: {
-    bar: "bg-rose-500",
-    text: "text-rose-700",
-    chip: "bg-rose-50 border-rose-200 text-rose-700",
+    bar: "bg-error",
+    text: "text-error",
+    chip: "bg-error-container/20 border-error/40 text-error",
     label: "RED",
   },
 }
 
 function DirectionIcon({ direction }: { direction: string }) {
   if (direction === "up") return <ArrowUp size={12} className="text-amber-600" />
-  if (direction === "down") return <ArrowDown size={12} className="text-sky-600" />
-  return <Minus size={12} className="text-slate-400" />
+  if (direction === "down") return <ArrowDown size={12} className="text-tertiary" />
+  return <Minus size={12} className="text-on-surface-variant/60" />
 }
 
 export default function DistressSignalCard({
@@ -36,11 +36,11 @@ export default function DistressSignalCard({
   const style = LEVEL_STYLE[signal?.level ?? "GREEN"] ?? LEVEL_STYLE.GREEN
 
   return (
-    <section className="rounded-xl bg-white border border-slate-200 p-5">
+    <section className="rounded-xl bg-surface-container-lowest border border-outline-variant p-5">
       <div className="flex items-start justify-between mb-3">
         <div>
-          <h2 className="text-sm font-semibold text-slate-900">Dynamic Distress Signal</h2>
-          <p className="text-[11px] text-slate-500">Decision-support indicator</p>
+          <h2 className="text-sm font-semibold text-on-surface">Dynamic Distress Signal</h2>
+          <p className="text-[11px] text-on-surface-variant">Decision-support indicator</p>
         </div>
         {signal && !signal.insufficient_data && (
           <span
@@ -52,7 +52,7 @@ export default function DistressSignalCard({
       </div>
 
       {!signal || signal.insufficient_data ? (
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-on-surface-variant">
           {signal?.factors?.[0]?.detail
             ? `Collecting observations — ${signal.factors[0].detail}.`
             : "Start an analysis to build the signal."}
@@ -63,17 +63,17 @@ export default function DistressSignalCard({
             <span className={`text-4xl font-bold tabular-nums ${style.text}`}>
               {signal.score.toFixed(0)}
             </span>
-            <span className="text-sm text-slate-400 mb-1.5">/ 100</span>
-            <span className="ml-auto text-[11px] text-slate-500 mb-1.5">
+            <span className="text-sm text-on-surface-variant/70 mb-1.5">/ 100</span>
+            <span className="ml-auto text-[11px] text-on-surface-variant mb-1.5">
               Signal confidence{" "}
-              <span className="font-semibold text-slate-700">
+              <span className="font-semibold text-on-surface-variant">
                 {signal.confidence.toFixed(0)}%
               </span>
             </span>
           </div>
 
           <div
-            className="h-2 rounded-full bg-slate-200 overflow-hidden mb-4"
+            className="h-2 rounded-full bg-surface-container-high overflow-hidden mb-4"
             role="meter"
             aria-valuenow={Math.round(signal.score)}
             aria-valuemin={0}
@@ -87,7 +87,7 @@ export default function DistressSignalCard({
           </div>
 
           <div className="mb-3">
-            <h3 className="text-[10px] uppercase tracking-wide text-slate-500 mb-1.5">
+            <h3 className="text-[10px] uppercase tracking-wide text-on-surface-variant mb-1.5">
               Contributing factors
             </h3>
             <ul className="space-y-1">
@@ -96,8 +96,8 @@ export default function DistressSignalCard({
                   <span className="mt-0.5">
                     <DirectionIcon direction={factor.direction} />
                   </span>
-                  <span className="text-slate-700">{factor.label}</span>
-                  <span className="text-slate-400">— {factor.detail}</span>
+                  <span className="text-on-surface-variant">{factor.label}</span>
+                  <span className="text-on-surface-variant/70">— {factor.detail}</span>
                 </li>
               ))}
             </ul>
@@ -105,7 +105,7 @@ export default function DistressSignalCard({
 
           {signal.themes && signal.themes.length > 0 && (
             <div className="mb-3">
-              <h3 className="text-[10px] uppercase tracking-wide text-slate-500 mb-1.5">
+              <h3 className="text-[10px] uppercase tracking-wide text-on-surface-variant mb-1.5">
                 Detected emotional themes
               </h3>
               <div className="flex flex-wrap gap-1.5">
@@ -113,14 +113,14 @@ export default function DistressSignalCard({
                   <span
                     key={t.theme}
                     title={`matched: ${t.matches.join(", ")}`}
-                    className="px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-[11px] text-slate-600"
+                    className="px-2 py-0.5 rounded-full bg-surface-container-high border border-outline-variant text-[11px] text-on-surface-variant"
                   >
                     {t.theme}
-                    <span className="text-slate-400"> ·{t.count}</span>
+                    <span className="text-on-surface-variant/70"> ·{t.count}</span>
                   </span>
                 ))}
               </div>
-              <p className="text-[10px] text-slate-400 mt-1">
+              <p className="text-[10px] text-on-surface-variant/70 mt-1">
                 Themes are words present in the transcript, not inferences about the speaker.
               </p>
             </div>
@@ -128,7 +128,7 @@ export default function DistressSignalCard({
         </>
       )}
 
-      <p className="flex items-start gap-1.5 text-[10px] text-slate-500 pt-3 border-t border-slate-200">
+      <p className="flex items-start gap-1.5 text-[10px] text-on-surface-variant pt-3 border-t border-outline-variant">
         <Info size={11} className="mt-0.5 shrink-0" />
         {signal?.disclaimer ??
           "Prototype decision-support signal — not a clinical diagnosis."}

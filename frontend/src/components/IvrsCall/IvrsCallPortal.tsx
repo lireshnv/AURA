@@ -231,35 +231,35 @@ export default function IvrsCallPortal() {
 
       <div className="w-full max-w-md">
         {errorMsg && (
-          <div className="flex items-start gap-2 rounded-xl bg-rose-50 border border-rose-200 px-4 py-3 mb-3">
-            <AlertTriangle size={15} className="text-rose-600 mt-0.5 shrink-0" />
-            <p className="text-xs text-rose-800">{errorMsg}</p>
+          <div className="flex items-start gap-2 rounded-xl bg-error-container border border-error/40 px-4 py-3 mb-3">
+            <AlertTriangle size={15} className="text-error mt-0.5 shrink-0" />
+            <p className="text-xs text-on-error-container">{errorMsg}</p>
           </div>
         )}
 
         {/* ---- Incoming call ---- */}
         {phase === "incoming" && incoming && (
-          <section className="rounded-3xl bg-white border border-slate-200 shadow-2xl p-8 flex flex-col items-center text-center gap-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">📞 AURA Call</p>
+          <section className="rounded-3xl bg-surface-container-lowest border border-outline-variant shadow-2xl p-8 flex flex-col items-center text-center gap-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">📞 AURA Call</p>
             <IvrsAvatar state="ringing" />
             <div>
-              <p className="text-[11px] text-slate-400 uppercase tracking-wide">Reason</p>
-              <p className="text-sm font-medium text-slate-800">
+              <p className="text-[11px] text-on-surface-variant uppercase tracking-wide">Reason</p>
+              <p className="text-sm font-medium text-on-surface">
                 {incoming.reason_emoji} {incoming.reason_label}
               </p>
             </div>
-            <p className="text-sm text-violet-600 font-medium animate-pulse">Incoming Call…</p>
+            <p className="text-sm text-primary font-medium animate-pulse">Incoming Call…</p>
             <div className="flex gap-3 mt-2">
               <button
                 onClick={answer}
-                className="flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold"
+                className="flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-secondary hover:bg-secondary/90 text-on-secondary text-sm font-semibold"
               >
                 <Check size={16} />
                 Answer
               </button>
               <button
                 onClick={decline}
-                className="flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-rose-600 hover:bg-rose-500 text-white text-sm font-semibold"
+                className="flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-error hover:bg-error/90 text-on-error text-sm font-semibold"
               >
                 <X size={16} />
                 Decline
@@ -270,15 +270,15 @@ export default function IvrsCallPortal() {
 
         {/* ---- Active call ---- */}
         {phase === "call" && (
-          <section className="rounded-3xl bg-white border border-slate-200 shadow-2xl p-6 flex flex-col gap-4">
+          <section className="rounded-3xl bg-surface-container-lowest border border-outline-variant shadow-2xl p-6 flex flex-col gap-4">
             <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">AURA Call</p>
-              <div className="flex items-center gap-3 text-[11px] text-slate-500">
-                <span className={`flex items-center gap-1 ${wsConnected ? "text-emerald-600" : "text-slate-400"}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${wsConnected ? "bg-emerald-500" : "bg-slate-300"}`} />
+              <p className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">AURA Call</p>
+              <div className="flex items-center gap-3 text-[11px] text-on-surface-variant">
+                <span className={`flex items-center gap-1 ${wsConnected ? "text-secondary" : "text-on-surface-variant/60"}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${wsConnected ? "bg-secondary" : "bg-outline-variant"}`} />
                   {wsConnected ? "Connected" : "Connecting…"}
                 </span>
-                <span className="tabular-nums font-medium text-slate-600">{formatTimer(elapsed)}</span>
+                <span className="tabular-nums font-medium text-on-surface-variant">{formatTimer(elapsed)}</span>
               </div>
             </div>
 
@@ -286,14 +286,14 @@ export default function IvrsCallPortal() {
               <IvrsAvatar state={avatarState} />
             </div>
 
-            <div ref={scrollRef} className="rounded-xl bg-slate-50 border border-slate-200 p-3 h-56 overflow-y-auto space-y-2.5">
+            <div ref={scrollRef} className="rounded-xl bg-surface-container-low border border-outline-variant p-3 h-56 overflow-y-auto space-y-2.5">
               {transcript.map((line, i) => (
                 <div key={i} className={`flex ${line.role === "user" ? "justify-end" : "justify-start"}`}>
                   <div
                     className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${
                       line.role === "user"
-                        ? "bg-violet-600 text-white rounded-br-sm"
-                        : "bg-white border border-slate-200 text-slate-700 rounded-bl-sm"
+                        ? "bg-primary text-on-primary rounded-br-sm"
+                        : "bg-surface-container-lowest border border-outline-variant text-on-surface-variant rounded-bl-sm"
                     }`}
                   >
                     <p className="text-[10px] uppercase tracking-wide opacity-60 mb-0.5">
@@ -312,14 +312,14 @@ export default function IvrsCallPortal() {
                 onKeyDown={(e) => e.key === "Enter" && send()}
                 placeholder={recording ? "Listening…" : "Type your reply…"}
                 disabled={busy || recording}
-                className="flex-1 rounded-full border border-slate-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-50"
+                className="flex-1 rounded-full border border-outline-variant px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
               />
               <button
                 onClick={toggleRecording}
                 disabled={busy}
                 title={recording ? "Stop recording" : "Speak to AURA"}
                 className={`p-2.5 rounded-full border shrink-0 disabled:opacity-40 ${
-                  recording ? "bg-rose-50 border-rose-300 text-rose-700" : "border-slate-300 text-slate-600 hover:bg-slate-100"
+                  recording ? "bg-error-container border-error/40 text-on-error-container" : "border-outline-variant text-on-surface-variant hover:bg-surface-container-high"
                 }`}
               >
                 {recording ? <Square size={16} /> : <Mic size={16} />}
@@ -327,23 +327,23 @@ export default function IvrsCallPortal() {
               <button
                 onClick={send}
                 disabled={!input.trim() || busy || recording}
-                className="p-2.5 rounded-full bg-violet-600 hover:bg-violet-500 text-white shrink-0 disabled:opacity-40"
+                className="p-2.5 rounded-full bg-primary hover:bg-primary-fixed-dim text-on-primary shrink-0 disabled:opacity-40"
               >
                 <Send size={16} />
               </button>
             </div>
 
-            <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+            <div className="flex items-center justify-between pt-2 border-t border-outline-variant/50">
               <button
                 onClick={() => setMuted((m) => !m)}
-                className="flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-700"
+                className="flex items-center gap-1.5 text-[11px] text-on-surface-variant hover:text-on-surface"
               >
                 {muted ? <VolumeX size={13} /> : <Volume2 size={13} />}
                 {muted ? "Speaker off" : "Speaker on"}
               </button>
               <button
                 onClick={hangUp}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-rose-600 hover:bg-rose-500 text-white text-sm font-semibold"
+                className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-error hover:bg-error/90 text-on-error text-sm font-semibold"
               >
                 <PhoneOff size={14} />
                 End Call
@@ -354,14 +354,14 @@ export default function IvrsCallPortal() {
 
         {/* ---- Summary ---- */}
         {phase === "summary" && (
-          <section className="rounded-3xl bg-white border border-slate-200 shadow-2xl p-8 flex flex-col items-center text-center gap-4">
+          <section className="rounded-3xl bg-surface-container-lowest border border-outline-variant shadow-2xl p-8 flex flex-col items-center text-center gap-4">
             <IvrsAvatar state="ended" />
-            <p className="text-sm text-slate-600">{summaryNote}</p>
+            <p className="text-sm text-on-surface-variant">{summaryNote}</p>
             {transcript.length > 0 && (
-              <div className="w-full text-left rounded-xl bg-slate-50 border border-slate-200 p-3 max-h-48 overflow-y-auto space-y-1.5">
+              <div className="w-full text-left rounded-xl bg-surface-container-low border border-outline-variant p-3 max-h-48 overflow-y-auto space-y-1.5">
                 {transcript.map((line, i) => (
-                  <p key={i} className="text-xs text-slate-600">
-                    <span className="font-semibold text-slate-800">{line.role === "user" ? "You" : "AURA"}:</span>{" "}
+                  <p key={i} className="text-xs text-on-surface-variant">
+                    <span className="font-semibold text-on-surface">{line.role === "user" ? "You" : "AURA"}:</span>{" "}
                     {line.text}
                   </p>
                 ))}
@@ -369,7 +369,7 @@ export default function IvrsCallPortal() {
             )}
             <button
               onClick={reset}
-              className="px-5 py-2.5 rounded-full bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold"
+              className="px-5 py-2.5 rounded-full bg-primary hover:bg-primary-fixed-dim text-on-primary text-sm font-semibold"
             >
               Close
             </button>

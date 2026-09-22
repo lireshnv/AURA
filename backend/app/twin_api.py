@@ -50,6 +50,14 @@ class CheckinSubmission(BaseModel):
     routine: Optional[float] = Field(default=None, ge=0, le=10)
     social_interaction: Optional[float] = Field(default=None, ge=0, le=10)
     communication: Optional[float] = Field(default=None, ge=0, le=10)
+    # Free-form context tags from the quick check-in flow (e.g. "Work",
+    # "Sleep", "Relationships") - not a scored dimension, just a label the
+    # Insights page can later correlate against reported mood/stress.
+    categories: Optional[List[str]] = None
+    # The plain-language feeling label the user tapped (e.g. "Good", "Low",
+    # "Anxious") from the quick check-in - kept alongside the numeric `mood`
+    # score so the UI can echo back exactly what the user chose.
+    feeling: Optional[str] = None
     note: Optional[str] = None
     skipped: bool = False
 

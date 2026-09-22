@@ -161,7 +161,9 @@ export async function submitBaseline(answers: Record<string, number | string>) {
   return res.json()
 }
 
-export async function submitCheckin(values: Record<string, number | string | boolean>) {
+export async function submitCheckin(
+  values: Record<string, number | string | boolean | string[] | undefined>
+) {
   const res = await fetch(`${TWIN}/checkin`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

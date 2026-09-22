@@ -30,13 +30,13 @@ export default function DistressPanel({
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <div>
-        <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">
-          Distress Estimate <span className="normal-case text-slate-400">(expression-based)</span>
+        <div className="text-[10px] uppercase tracking-wide text-on-surface-variant mb-1">
+          Distress Estimate <span className="normal-case text-on-surface-variant/70">(expression-based)</span>
         </div>
         <div className="flex items-end gap-2">
-          <span className="text-2xl font-bold text-slate-900">{distressScore}</span>
-          <span className="text-xs text-slate-500 mb-0.5">/ 100</span>
-          <span className={`text-xs font-medium mb-1 ${LEVEL_COLOR[distressLevel] ?? "text-slate-500"}`}>
+          <span className="text-2xl font-bold text-on-surface">{distressScore}</span>
+          <span className="text-xs text-on-surface-variant mb-0.5">/ 100</span>
+          <span className={`text-xs font-medium mb-1 ${LEVEL_COLOR[distressLevel] ?? "text-on-surface-variant"}`}>
             {distressLevel}
           </span>
         </div>
@@ -61,15 +61,15 @@ export default function DistressPanel({
       </div>
 
       <div>
-        <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">Emotional Stability</div>
+        <div className="text-[10px] uppercase tracking-wide text-on-surface-variant mb-1">Emotional Stability</div>
         <div className="flex items-end gap-2">
-          <span className="text-2xl font-bold text-slate-900">{stabilityScore}</span>
-          <span className="text-xs text-slate-500 mb-0.5">/ 100</span>
-          <span className={`text-xs font-medium mb-1 ${LEVEL_COLOR[stabilityLabel] ?? "text-slate-500"}`}>
+          <span className="text-2xl font-bold text-on-surface">{stabilityScore}</span>
+          <span className="text-xs text-on-surface-variant mb-0.5">/ 100</span>
+          <span className={`text-xs font-medium mb-1 ${LEVEL_COLOR[stabilityLabel] ?? "text-on-surface-variant"}`}>
             {stabilityLabel}
           </span>
         </div>
-        <p className="text-[11px] text-slate-500 mt-2">
+        <p className="text-[11px] text-on-surface-variant mt-2">
           {stabilityLabel === "Stable"
             ? "Detected expression probabilities have stayed consistent."
             : "Higher variation in detected expression probabilities."}

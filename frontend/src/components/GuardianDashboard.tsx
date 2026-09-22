@@ -7,9 +7,9 @@ import { fetchSosHistoryFor, SosEvent } from "../lib/sosApi"
 
 function Card({ title, icon: Icon, children }: { title: string; icon: typeof HeartPulse; children: React.ReactNode }) {
   return (
-    <section className="rounded-xl bg-white border border-slate-200 p-5">
-      <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900 mb-3">
-        <Icon size={15} className="text-violet-600" />
+    <section className="rounded-xl bg-surface-container-lowest border border-outline-variant p-5">
+      <h2 className="flex items-center gap-2 text-sm font-semibold text-on-surface mb-3">
+        <Icon size={15} className="text-primary" />
         {title}
       </h2>
       {children}
@@ -52,18 +52,18 @@ export default function GuardianDashboard() {
     load()
   }, [load])
 
-  if (loading) return <p className="text-sm text-slate-500">Loading…</p>
+  if (loading) return <p className="text-sm text-on-surface-variant">Loading…</p>
 
   if (linkedVictims.length === 0) {
     return (
       <div className="space-y-5">
         <div>
-          <h1 className="text-xl font-bold text-slate-900">Guardian Dashboard</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Authorised summary for a linked victim.</p>
+          <h1 className="text-headline-md text-on-surface">Guardian Dashboard</h1>
+          <p className="text-body-md text-on-surface-variant mt-0.5">Authorised summary for a linked victim.</p>
         </div>
-        <section className="rounded-xl bg-white border border-slate-200 p-8 text-center">
-          <Users size={28} className="text-slate-300 mx-auto mb-2" />
-          <p className="text-sm text-slate-500">
+        <section className="rounded-xl bg-surface-container-lowest border border-outline-variant p-8 text-center">
+          <Users size={28} className="text-on-surface-variant/50 mx-auto mb-2" />
+          <p className="text-sm text-on-surface-variant">
             No linked victim yet. An administrator authorises this relationship.
           </p>
         </section>
@@ -79,15 +79,15 @@ export default function GuardianDashboard() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-bold text-slate-900">Guardian Dashboard</h1>
-        <p className="text-sm text-slate-500 mt-0.5">Authorised summary only - no transcripts or facial data.</p>
+        <h1 className="text-headline-md text-on-surface">Guardian Dashboard</h1>
+        <p className="text-body-md text-on-surface-variant mt-0.5">Authorised summary only - no transcripts or facial data.</p>
       </div>
 
-      <section className="rounded-xl bg-violet-50 border border-violet-200 p-4 flex items-center gap-3">
-        <Users size={18} className="text-violet-600 shrink-0" />
+      <section className="rounded-xl bg-primary-container/10 border border-primary/20 p-4 flex items-center gap-3">
+        <Users size={18} className="text-primary shrink-0" />
         <div>
-          <p className="text-[11px] text-violet-600 uppercase tracking-wide">Linked victim</p>
-          <p className="text-sm font-semibold text-violet-900">{victimAuraId}</p>
+          <p className="text-[11px] text-primary uppercase tracking-wide">Linked victim</p>
+          <p className="text-sm font-semibold text-on-primary-container">{victimAuraId}</p>
         </div>
       </section>
 
@@ -95,65 +95,65 @@ export default function GuardianDashboard() {
         <Card title="Current well-being signal" icon={HeartPulse}>
           {hasData && risk ? (
             <div className="flex items-center gap-4">
-              <div className="text-3xl font-bold text-slate-800 tabular-nums">
+              <div className="text-3xl font-bold text-on-surface tabular-nums">
                 {Math.round(risk.score)}
-                <span className="text-sm font-normal text-slate-400"> / 100</span>
+                <span className="text-sm font-normal text-on-surface-variant"> / 100</span>
               </div>
               <span
                 className={`px-2.5 py-1 rounded-full text-[11px] font-bold border ${
                   risk.band === "RED"
-                    ? "bg-rose-50 border-rose-200 text-rose-700"
+                    ? "bg-error-container/20 border-error/40 text-error"
                     : risk.band === "AMBER"
-                    ? "bg-amber-50 border-amber-200 text-amber-700"
-                    : "bg-emerald-50 border-emerald-200 text-emerald-700"
+                    ? "bg-primary-container/10 border-primary/20 text-primary"
+                    : "bg-secondary-container/20 border-secondary/20 text-on-secondary-container"
                 }`}
               >
                 {risk.band}
               </span>
             </div>
           ) : (
-            <p className="text-sm text-slate-400">Analysis pending</p>
+            <p className="text-sm text-on-surface-variant">Analysis pending</p>
           )}
         </Card>
 
         <Card title="Distress trend" icon={TrendingUp}>
           {hasData && currentTwin ? (
-            <p className="text-sm text-slate-700 capitalize">
-              {currentTwin.trend.label} <span className="text-slate-400">({currentTwin.trend.direction})</span>
+            <p className="text-sm text-on-surface-variant capitalize">
+              {currentTwin.trend.label} <span className="text-on-surface-variant/70">({currentTwin.trend.direction})</span>
             </p>
           ) : (
-            <p className="text-sm text-slate-400">Analysis pending</p>
+            <p className="text-sm text-on-surface-variant">Analysis pending</p>
           )}
         </Card>
 
         <Card title="Recent check-ins" icon={CalendarCheck}>
           {hasData && twin ? (
-            <p className="text-sm text-slate-700">{twin.counts.checkins} recorded</p>
+            <p className="text-sm text-on-surface-variant">{twin.counts.checkins} recorded</p>
           ) : (
-            <p className="text-sm text-slate-400">No data available</p>
+            <p className="text-sm text-on-surface-variant">No data available</p>
           )}
         </Card>
 
         <Card title="Activity engagement" icon={Activity}>
           {hasData && currentTwin ? (
-            <p className="text-sm text-slate-700">
+            <p className="text-sm text-on-surface-variant">
               {currentTwin.engagement.checkins_last_7d} of {currentTwin.engagement.expected_last_7d} expected this
               week
             </p>
           ) : (
-            <p className="text-sm text-slate-400">No data available</p>
+            <p className="text-sm text-on-surface-variant">No data available</p>
           )}
         </Card>
 
         <Card title="Call history / status" icon={PhoneCall}>
           {calls.length === 0 ? (
-            <p className="text-sm text-slate-400">No calls</p>
+            <p className="text-sm text-on-surface-variant">No calls</p>
           ) : (
             <div className="space-y-1.5">
               {calls.slice(0, 5).map((c) => (
                 <div key={c.id} className="flex items-center justify-between text-xs">
-                  <span className="text-slate-600 capitalize">{c.reason_key.replace(/_/g, " ")}</span>
-                  <span className="text-slate-400">{c.status}</span>
+                  <span className="text-on-surface-variant capitalize">{c.reason_key.replace(/_/g, " ")}</span>
+                  <span className="text-on-surface-variant/70">{c.status}</span>
                 </div>
               ))}
             </div>
@@ -162,11 +162,11 @@ export default function GuardianDashboard() {
 
         <Card title="SOS status" icon={AlertTriangle}>
           {sosEvents.length === 0 ? (
-            <p className="text-sm text-slate-400">No data available</p>
+            <p className="text-sm text-on-surface-variant">No data available</p>
           ) : (
             <div className="space-y-1.5">
               {sosEvents.slice(0, 3).map((e) => (
-                <p key={e.id} className="text-xs text-rose-700">
+                <p key={e.id} className="text-xs text-error">
                   SOS triggered {new Date(e.timestamp).toLocaleString()}
                 </p>
               ))}

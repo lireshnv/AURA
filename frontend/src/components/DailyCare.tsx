@@ -12,7 +12,7 @@ import AvatarModule from "./AvatarModule"
 import { useAvatarIdentity } from "./AvatarModule/useAvatarIdentity"
 import { AvatarAnimationState } from "./AvatarModule/types"
 
-const ACTIVITIES: { type: CareActivityType; label: string; icon: typeof Wind; description: string }[] = [
+export const ACTIVITIES: { type: CareActivityType; label: string; icon: typeof Wind; description: string }[] = [
   { type: "breathing", label: "Breathing", icon: Wind, description: "A short guided box-breathing exercise." },
   { type: "journaling", label: "Journaling", icon: PenLine, description: "A private moment to write - kept on this device only." },
   { type: "walking", label: "Walking", icon: Footprints, description: "Step away for a short walk." },
@@ -58,7 +58,7 @@ function BreathingActivity({ onComplete }: { onComplete: () => void }) {
   )
 }
 
-function ActivityModal({
+export function ActivityModal({
   onClose,
   onComplete,
 }: {

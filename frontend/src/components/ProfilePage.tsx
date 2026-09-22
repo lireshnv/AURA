@@ -5,11 +5,11 @@ import { API_BASE_URL } from "../lib/api"
 
 function Row({ label, value, ok }: { label: string; value: string; ok?: boolean }) {
   return (
-    <div className="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">
-      <span className="text-xs text-slate-500">{label}</span>
+    <div className="flex items-center justify-between py-2 border-b border-outline-variant/40 last:border-0">
+      <span className="text-xs text-on-surface-variant">{label}</span>
       <span
         className={`text-xs font-medium ${
-          ok === undefined ? "text-slate-700" : ok ? "text-emerald-700" : "text-amber-700"
+          ok === undefined ? "text-on-surface-variant" : ok ? "text-on-secondary-container" : "text-amber-700"
         }`}
       >
         {value}
@@ -37,28 +37,28 @@ export default function ProfilePage({
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-bold text-slate-900">Profile &amp; System</h1>
-        <p className="text-sm text-slate-500 mt-0.5">
+        <h1 className="text-headline-md text-on-surface">Profile &amp; System</h1>
+        <p className="text-body-md text-on-surface-variant mt-0.5">
           Session settings and what this installation can currently do.
         </p>
       </div>
 
-      <section className="rounded-xl bg-white border border-slate-200 p-5">
-        <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900 mb-2">
-          <User size={14} className="text-violet-600" />
+      <section className="rounded-xl bg-surface-container-lowest border border-outline-variant p-5">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-on-surface mb-2">
+          <User size={14} className="text-primary" />
           Account
         </h2>
         <Row label="Mode" value="Local session (no sign-in)" />
         <Row label="Stored data" value="Structured signals only" />
-        <p className="text-[11px] text-slate-500 mt-3">
+        <p className="text-[11px] text-on-surface-variant mt-3">
           This prototype runs without accounts. Analysis history is stored locally on this
           machine and can be cleared at any time from the History page.
         </p>
       </section>
 
-      <section className="rounded-xl bg-white border border-slate-200 p-5">
-        <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900 mb-2">
-          <Cpu size={14} className="text-violet-600" />
+      <section className="rounded-xl bg-surface-container-lowest border border-outline-variant p-5">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-on-surface mb-2">
+          <Cpu size={14} className="text-primary" />
           Analysis capabilities
         </h2>
         {capabilities ? (
@@ -92,13 +92,13 @@ export default function ProfilePage({
             />
           </>
         ) : (
-          <p className="text-xs text-slate-500">Capabilities unavailable — service offline.</p>
+          <p className="text-xs text-on-surface-variant">Capabilities unavailable — service offline.</p>
         )}
       </section>
 
-      <section className="rounded-xl bg-white border border-slate-200 p-5">
-        <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900 mb-2">
-          <Server size={14} className="text-violet-600" />
+      <section className="rounded-xl bg-surface-container-lowest border border-outline-variant p-5">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-on-surface mb-2">
+          <Server size={14} className="text-primary" />
           Service
         </h2>
         <Row
@@ -111,12 +111,12 @@ export default function ProfilePage({
         <Row label="Explanation engine" value="Deterministic (local)" />
       </section>
 
-      <section className="rounded-xl bg-slate-100 border border-slate-200 p-5">
-        <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900 mb-1.5">
-          <ShieldCheck size={14} className="text-slate-500" />
+      <section className="rounded-xl bg-surface-container-high border border-outline-variant p-5">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-on-surface mb-1.5">
+          <ShieldCheck size={14} className="text-on-surface-variant" />
           Privacy
         </h2>
-        <ul className="text-xs text-slate-600 space-y-1 leading-relaxed">
+        <ul className="text-xs text-on-surface-variant space-y-1 leading-relaxed">
           <li>· Camera and microphone are active only during an analysis session.</li>
           <li>· Raw video, raw audio and face images are never written to disk.</li>
           <li>· Only scores, timestamps and a short transcript excerpt are stored.</li>

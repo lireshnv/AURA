@@ -4,9 +4,14 @@ import SosButton from "./SosButton"
 
 export type Page =
   | "home"
+  | "checkin"
   | "analysis"
   | "wellbeing-risk"
+  | "insights"
   | "companion"
+  | "support"
+  | "history"
+  | "profile"
   | "history-profile"
   | "cases"
   | "ivrs-call"
@@ -17,10 +22,12 @@ export type Role = "victim" | "counsellor" | "admin" | "guardian"
 
 const VICTIM_NAV: { key: Page; label: string; icon: string }[] = [
   { key: "home", label: "Home", icon: "home" },
-  { key: "analysis", label: "Emotion Analysis", icon: "monitor_heart" },
-  { key: "wellbeing-risk", label: "Well-being & Risk", icon: "self_improvement" },
-  { key: "companion", label: "AI Companion", icon: "forum" },
-  { key: "history-profile", label: "History & Profile", icon: "history" },
+  { key: "checkin", label: "Check-In", icon: "mood" },
+  { key: "companion", label: "Companion", icon: "forum" },
+  { key: "insights", label: "Insights", icon: "insights" },
+  { key: "support", label: "Support", icon: "volunteer_activism" },
+  { key: "history", label: "History", icon: "history" },
+  { key: "profile", label: "Profile", icon: "account_circle" },
 ]
 
 // Counsellors get the case queue, analysis tooling and the AURA Call panel,

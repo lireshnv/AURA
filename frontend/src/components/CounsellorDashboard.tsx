@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react"
 import { ArrowDown, ArrowUp, Minus, UserCheck, Info, AlertTriangle } from "lucide-react"
 import {
   CaseQueue,
-  CaseRow,
   RiskBand,
   SupportSuggestion,
   TwinResponse,
