@@ -1,8 +1,17 @@
 import { useEffect, useState } from "react"
-import { Wind, PhoneCall, BookOpen, AlertTriangle, MessageCircle, Users, Stethoscope, ChevronRight, ShieldCheck } from "lucide-react"
+import { Wind, PhoneCall, BookOpen, AlertTriangle, MessageCircle, Users, Stethoscope, ChevronRight, ShieldCheck, ClipboardList } from "lucide-react"
 import { ACTIVITIES, ActivityModal } from "./DailyCare"
 import { CareActivityType, setConsent, submitCareAction } from "../lib/twinApi"
-import { fetchSupportPathways } from "../lib/auraApi"
+import { fetchSupportPathways, fetchSupportHistory, InterventionRecord } from "../lib/auraApi"
+
+// Plain-language status a victim sees for a decision a counsellor/admin made
+// on their behalf - never the internal "approved/rejected/escalated" wording,
+// which reads as clinical judgement rather than case progress.
+const STATUS_COPY: Record<string, { label: string; tone: string }> = {
+  approved: { label: "Approved — being arranged for you", tone: "text-secondary" },
+  rejected: { label: "Reviewed — this path wasn't taken forward", tone: "text-on-surface-variant" },
+  escalated: { label: "Escalated for closer attention", tone: "text-primary" },
+}
 
 const LEARN_TOPICS = [
   { title: "Understanding stress", body: "What stress is, how it shows up in the body, and why it isn't a weakness." },
@@ -28,11 +37,15 @@ interface Props {
 export default function Support({ auraId, onOpenCompanion, onOpenSafetyPlan }: Props) {
   const [showActivity, setShowActivity] = useState(false)
   const [pathways, setPathways] = useState<{ pathway: string; reason: string; urgency: string }[] | null>(null)
+  const [history, setHistory] = useState<InterventionRecord[] | null>(null)
 
   useEffect(() => {
     if (!auraId) return
     fetchSupportPathways(auraId).then((r) => {
       if (r) setPathways(r.suggestions ?? [])
+    })
+    fetchSupportHistory(auraId).then((r) => {
+      if (r) setHistory(r.interventions ?? [])
     })
   }, [auraId])
 
@@ -130,6 +143,43 @@ export default function Support({ auraId, onOpenCompanion, onOpenSafetyPlan }: P
           </div>
         )}
       </section>
+
+      {/* Case Monitoring - what happened after a support pathway was raised
+          for this person. Reuses the same persisted Intervention history the
+          counsellor/admin views read from, so this is never a second source
+          of truth - just a plain-language view of the same record. */}
+      {history && history.length > 0 && (
+        <section className="bg-surface-container-lowest rounded-[24px] shadow-ambient-md p-stack-md">
+          <h2 className="text-headline-md text-on-surface mb-1 flex items-center gap-2">
+            <ClipboardList size={20} className="text-primary" /> Your Case
+          </h2>
+          <p className="text-body-md text-on-surface-variant mb-4">
+            Where things stand with support that's been raised for you.
+          </p>
+          <div className="flex flex-col divide-y divide-outline-variant">
+            {history.slice(0, 6).map((h) => {
+              const status = STATUS_COPY[h.status] ?? { label: h.status, tone: "text-on-surface-variant" }
+              const when = h.decided_at ?? h.created_at
+              return (
+                <div key={h.id} className="flex items-center justify-between gap-3 py-3">
+                  <div>
+                    <p className="text-label-md font-semibold text-on-surface capitalize">
+                      {h.pathway.replace(/_/g, " ")}
+                    </p>
+                    <p className={`text-label-sm mt-0.5 ${status.tone}`}>{status.label}</p>
+                  </div>
+                  <span className="text-label-sm text-on-surface-variant shrink-0">
+                    {new Date(when).toLocaleDateString()}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+          <p className="text-label-sm text-outline mt-3">
+            A person reviews and decides on every item here — this is a record of that, not an automated action.
+          </p>
+        </section>
+      )}
 
       {/* Learn */}
       <section className="bg-surface-container-lowest rounded-[24px] shadow-ambient-md p-stack-md">
