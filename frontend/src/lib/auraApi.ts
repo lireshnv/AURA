@@ -284,5 +284,28 @@ export interface GeoOverview {
 
 export const fetchGeoOverview = () => getJson<GeoOverview>(`${AURA}/geo-overview`)
 
+export async function acknowledgeHighRiskCase(auraId: string) {
+  try {
+    const res = await fetch(`${AURA}/geo-overview/acknowledge/${auraId}`, {
+      method: "POST",
+      headers: { ...authHeader() },
+      credentials: "include",
+    })
+    return await res.json().catch(() => ({ success: res.ok }))
+  } catch {
+    return { success: false, error: "Could not reach the server." }
+  }
+}
+
+export interface Acknowledgement {
+  actor_role: string
+  at: string
+}
+
+export const fetchAcknowledgements = (auraId: string) =>
+  getJson<{ success: boolean; acknowledgements: Acknowledgement[] }>(
+    `${AURA}/geo-overview/acknowledgements/${auraId}`
+  )
+
 export const fetchSupportHistory = (auraId: string) =>
   getJson<{ success: boolean; interventions: InterventionRecord[] }>(`${AURA}/support/history/${auraId}`)

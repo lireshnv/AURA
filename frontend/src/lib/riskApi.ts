@@ -114,7 +114,8 @@ export async function recordReview(body: {
   try {
     const res = await fetch(`${RISK}/review`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeader() },
+      credentials: "include",
       body: JSON.stringify({ aura_id: "local-user", ...body }),
     })
     return await res.json()

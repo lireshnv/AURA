@@ -34,25 +34,31 @@ async def history(days: int = 7):
 
 
 @router.post("/review")
-async def record_review(payload: ReviewRequest):
+async def record_review(
+    payload: ReviewRequest,
+    user: User = Depends(require_role("counsellor", "admin")),
+):
     """Records a HUMAN action. Every call is written to the audit log.
 
     This endpoint never changes a risk score and never triggers an external
     notification - it records that a person did something.
+
+    actor_role/actor_id come from the AUTHENTICATED user, not the request
+    body - this previously had no auth at all and trusted whatever
+    actor_role the client claimed, which meant any caller could forge an
+    audit entry attributed to "counsellor" or "admin".
     """
     if payload.action not in audit_store.ACTIONS:
         return {
             "success": False,
             "error": f"Unknown action. Allowed: {', '.join(audit_store.ACTIONS)}",
         }
-    if not payload.actor_role.strip():
-        return {"success": False, "error": "An action must record who performed it."}
 
     entry_id = audit_store.record(
         aura_id=payload.aura_id,
         action=payload.action,
-        actor_role=payload.actor_role,
-        actor_id=payload.actor_id,
+        actor_role=user.role,
+        actor_id=user.id,
         reason=payload.reason,
     )
     return {

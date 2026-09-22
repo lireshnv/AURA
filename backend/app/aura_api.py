@@ -492,6 +492,60 @@ async def geo_overview(
     }
 
 
+@router.post("/geo-overview/acknowledge/{aura_id}")
+async def acknowledge_high_risk_case(
+    aura_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("admin")),
+):
+    """A designated official acknowledging a RED-band case flagged on the
+    Geographic & Risk Overview - closes the loop on "trigger alerts... when
+    predefined risk thresholds are crossed" with a real, auditable record of
+    who saw it and when, rather than the alert only ever being displayed.
+
+    This app's real role model doesn't have separate district/state/
+    national officer roles (see SECURITY_POSTURE's not_implemented list) -
+    admin is the one designated-official tier that exists today, so that's
+    who this is scoped to rather than inventing a role with no login path.
+    """
+    db.add(
+        AuditLog(
+            actor_id=user.id,
+            actor_role=user.role,
+            action="high_risk_case_acknowledged",
+            resource="case_profile",
+            resource_id=aura_id,
+        )
+    )
+    db.commit()
+    return {"success": True}
+
+
+@router.get("/geo-overview/acknowledgements/{aura_id}")
+async def high_risk_acknowledgements(
+    aura_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("admin")),
+):
+    rows = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.resource == "case_profile",
+            AuditLog.resource_id == aura_id,
+            AuditLog.action == "high_risk_case_acknowledged",
+        )
+        .order_by(AuditLog.timestamp.desc())
+        .limit(10)
+        .all()
+    )
+    return {
+        "success": True,
+        "acknowledgements": [
+            {"actor_role": r.actor_role, "at": r.timestamp.isoformat()} for r in rows
+        ],
+    }
+
+
 @router.get("/support/pathways/{aura_id}")
 async def support_pathways(
     aura_id: str,

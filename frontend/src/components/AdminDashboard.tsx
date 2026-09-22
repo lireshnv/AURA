@@ -15,7 +15,7 @@ import {
   adminRevokeGuardianLink,
   adminUpdateUser,
 } from "../lib/authApi"
-import { seedDemoData, fetchGeoOverview, GeoOverview } from "../lib/auraApi"
+import { seedDemoData, fetchGeoOverview, acknowledgeHighRiskCase, GeoOverview } from "../lib/auraApi"
 import { fetchAuditLog, AuditEntryRow } from "../lib/riskApi"
 import { API_BASE_URL } from "../lib/api"
 
@@ -64,6 +64,12 @@ export default function AdminDashboard() {
   const [seedMessage, setSeedMessage] = useState<string | null>(null)
 
   const [geo, setGeo] = useState<GeoOverview | null>(null)
+  const [acknowledged, setAcknowledged] = useState<Record<string, boolean>>({})
+
+  const acknowledge = async (auraId: string) => {
+    const res = await acknowledgeHighRiskCase(auraId)
+    if (res.success) setAcknowledged((p) => ({ ...p, [auraId]: true }))
+  }
 
   const reload = useCallback(async () => {
     const [u, a, g, audit, geoData] = await Promise.all([
@@ -243,13 +249,25 @@ export default function AdminDashboard() {
               ) : (
                 <div className="space-y-1">
                   {geo.high_risk_cases.map((c) => (
-                    <div key={c.aura_id} className="flex justify-between text-label-sm py-1 border-b border-surface-container-high last:border-0">
-                      <span className="text-on-surface">
-                        {c.aura_id} <span className="text-on-surface-variant capitalize">({c.case_type.replace(/_/g, " ")})</span>
-                      </span>
-                      <span className="text-on-surface-variant">
-                        {[c.district, c.state].filter(Boolean).join(", ") || "Unspecified location"} · score {Math.round(c.risk_score)}
-                      </span>
+                    <div key={c.aura_id} className="flex items-center justify-between gap-3 text-label-sm py-1.5 border-b border-surface-container-high last:border-0">
+                      <div className="min-w-0">
+                        <span className="text-on-surface">
+                          {c.aura_id} <span className="text-on-surface-variant capitalize">({c.case_type.replace(/_/g, " ")})</span>
+                        </span>
+                        <span className="text-on-surface-variant block">
+                          {[c.district, c.state].filter(Boolean).join(", ") || "Unspecified location"} · score {Math.round(c.risk_score)}
+                        </span>
+                      </div>
+                      {acknowledged[c.aura_id] ? (
+                        <span className="shrink-0 text-label-sm text-secondary font-medium">Acknowledged</span>
+                      ) : (
+                        <button
+                          onClick={() => acknowledge(c.aura_id)}
+                          className="shrink-0 px-2.5 py-1 rounded-full border border-error/30 text-error text-label-sm font-medium hover:bg-error-container/10"
+                        >
+                          Acknowledge
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
