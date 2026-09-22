@@ -87,7 +87,7 @@ export default function GuardianDashboard() {
         <Users size={18} className="text-primary shrink-0" />
         <div>
           <p className="text-[11px] text-primary uppercase tracking-wide">Linked victim</p>
-          <p className="text-sm font-semibold text-on-primary-container">{victimAuraId}</p>
+          <p className="text-sm font-semibold text-on-surface">{victimAuraId}</p>
         </div>
       </section>
 
