@@ -19,6 +19,7 @@ import SafetyPlan from "./components/SafetyPlan"
 import HistoryPage from "./components/HistoryPage"
 import ProfilePage from "./components/ProfilePage"
 import AICompanion from "./components/AICompanion"
+import AuraVoiceConversation from "./components/AuraVoiceConversation"
 import IvrsCallPortal from "./components/IvrsCall/IvrsCallPortal"
 import AdminDashboard from "./components/AdminDashboard"
 import CounsellorCallPanel from "./components/CounsellorCallPanel"
@@ -718,10 +719,17 @@ export default function App() {
         }
       : null
 
-  /** Starts a session from the Home page and navigates to the analysis view. */
+  /**
+   * Navigates to the analysis view from Home's "Talk to AURA" tile.
+   *
+   * Deliberately does NOT auto-start the camera/microphone pipeline anymore -
+   * that used to fire immediately on navigation, which silently turned the
+   * camera on before the person had touched anything. Speak with Aura is the
+   * primary way in now, and it acquires only the microphone until the person
+   * explicitly opts into camera analysis.
+   */
   const handleStartFromHome = () => {
     setPage("analysis")
-    if (!running) handleAnalyseNow()
   }
 
   const handleOpenCheckin = () => setPage("checkin")
@@ -755,6 +763,16 @@ export default function App() {
           <div className="rounded-xl bg-error-container text-on-error-container text-body-md px-4 py-3">
             {fatalError}
           </div>
+        )}
+
+        {role === "victim" && (
+          <AuraVoiceConversation
+            cameraActive={active}
+            onToggleCamera={(on) => setActive(on)}
+            onOpenSupport={() => setPage("support")}
+            onOpenInsights={() => setPage("insights")}
+            onOpenSafetyPlan={() => setPage("safety-plan")}
+          />
         )}
 
         <AnalysisControls

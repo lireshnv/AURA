@@ -94,6 +94,17 @@ export async function sendChatMessage(
   }
 }
 
+export async function fetchHistory(sessionId: string): Promise<ChatMessage[]> {
+  try {
+    const res = await fetch(`${CHAT}/history?session_id=${encodeURIComponent(sessionId)}`)
+    if (!res.ok) return []
+    const data = await res.json()
+    return Array.isArray(data.messages) ? data.messages : []
+  } catch {
+    return []
+  }
+}
+
 export async function startNewConversation(): Promise<string | null> {
   try {
     const res = await fetch(`${CHAT}/new`, { method: "POST" })

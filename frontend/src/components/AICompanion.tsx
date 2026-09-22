@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import {
   Send,
   Mic,
@@ -10,34 +10,11 @@ import {
   Info,
   Volume2,
 } from "lucide-react"
-import {
-  ChatMessage,
-  CompanionStatus,
-  SafetyBlock,
-  clearConversation,
-  fetchCompanionStatus,
-  sendChatMessage,
-  speakText,
-  startNewConversation,
-  transcribeVoice,
-} from "../lib/chatApi"
+import { SafetyBlock, transcribeVoice } from "../lib/chatApi"
+import { useAuraConversation } from "../lib/useAuraConversation"
+import { LANGUAGE_OPTIONS, getStoredLanguage, storeLanguage } from "../lib/companionLanguages"
 import { AvatarAnimationState } from "./AvatarModule/types"
 import DailyCare from "./DailyCare"
-
-const LANGUAGE_OPTIONS: { code: string; label: string }[] = [
-  { code: "auto", label: "English" },
-  { code: "hi", label: "हिन्दी (Hindi)" },
-  { code: "bn", label: "বাংলা (Bengali)" },
-  { code: "ta", label: "தமிழ் (Tamil)" },
-  { code: "te", label: "తెలుగు (Telugu)" },
-  { code: "mr", label: "मराठी (Marathi)" },
-  { code: "gu", label: "ગુજરાતી (Gujarati)" },
-  { code: "kn", label: "ಕನ್ನಡ (Kannada)" },
-  { code: "ml", label: "മലയാളം (Malayalam)" },
-  { code: "pa", label: "ਪੰਜਾਬੀ (Punjabi)" },
-  { code: "ur", label: "اردو (Urdu)" },
-]
-const LANGUAGE_STORAGE_KEY = "aura_companion_language"
 
 /**
  * AURA AI Companion.
@@ -54,7 +31,7 @@ const LANGUAGE_STORAGE_KEY = "aura_companion_language"
  * original chatbot rendered it with `innerHTML` via marked.parse(), which is an
  * XSS path if a response ever contains markup.
  */
-function renderMarkdown(text: string): string {
+export function renderMarkdown(text: string): string {
   const escaped = text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -70,7 +47,7 @@ function renderMarkdown(text: string): string {
     .replace(/\n/g, "<br/>")
 }
 
-function SafetyPanel({ safety }: { safety: SafetyBlock }) {
+export function SafetyPanel({ safety }: { safety: SafetyBlock }) {
   const urgent = safety.severity === "urgent"
   return (
     <div
@@ -102,86 +79,40 @@ function SafetyPanel({ safety }: { safety: SafetyBlock }) {
 }
 
 export default function AICompanion() {
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [safetyBlocks, setSafetyBlocks] = useState<Record<number, SafetyBlock>>({})
   const [input, setInput] = useState("")
-  const [sessionId, setSessionId] = useState<string | null>(null)
-  const [sending, setSending] = useState(false)
-  const [status, setStatus] = useState<CompanionStatus | null>(null)
   const [recording, setRecording] = useState(false)
   const [transcribing, setTranscribing] = useState(false)
-  const [speaking, setSpeaking] = useState(false)
-  const [supportive, setSupportive] = useState(false)
-  const [language, setLanguage] = useState<string>(() => {
-    try {
-      return localStorage.getItem(LANGUAGE_STORAGE_KEY) || "auto"
-    } catch {
-      return "auto"
-    }
-  })
+  const [language, setLanguage] = useState<string>(getStoredLanguage)
 
   const changeLanguage = (code: string) => {
     setLanguage(code)
-    try {
-      localStorage.setItem(LANGUAGE_STORAGE_KEY, code)
-    } catch {
-      /* per-browser convenience only - conversation works without it */
-    }
+    storeLanguage(code)
   }
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const recorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
-  const audioRef = useRef<HTMLAudioElement>(null)
 
-  useEffect(() => {
-    fetchCompanionStatus().then(setStatus)
-    startNewConversation().then(setSessionId)
-  }, [])
+  const {
+    messages,
+    safetyBlocks,
+    sending,
+    speaking,
+    supportive,
+    status,
+    send: sendRaw,
+    reset: resetConversation,
+  } = useAuraConversation(language)
+
+  const send = async (text: string) => {
+    if (!text.trim() || sending) return
+    setInput("")
+    await sendRaw(text)
+  }
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" })
   }, [messages, sending])
-
-  const playReply = useCallback(
-    async (text: string) => {
-      if (!status?.tts_available) return
-      const url = await speakText(text)
-      if (!url || !audioRef.current) return
-      audioRef.current.src = url
-      try {
-        await audioRef.current.play()
-      } catch {
-        /* autoplay blocked or playback failed - the text reply already shown */
-      }
-    },
-    [status?.tts_available]
-  )
-
-  const send = useCallback(
-    async (text: string) => {
-      if (!text.trim() || sending) return
-
-      setInput("")
-      setMessages((m) => [...m, { role: "user", content: text }])
-      setSending(true)
-
-      const reply = await sendChatMessage(text, sessionId, language)
-      if (reply.session_id) setSessionId(reply.session_id)
-
-      setSupportive(!!reply.safety?.triggered)
-      setMessages((m) => {
-        const next = [...m, { role: "assistant" as const, content: reply.response }]
-        if (reply.safety?.triggered) {
-          setSafetyBlocks((s) => ({ ...s, [next.length - 1]: reply.safety! }))
-        }
-        return next
-      })
-      setSending(false)
-      if (reply.status === "success") playReply(reply.response)
-    },
-    [sending, sessionId, playReply, language]
-  )
 
   const toggleRecording = async () => {
     if (recording) {
@@ -210,14 +141,7 @@ export default function AICompanion() {
     }
   }
 
-  const reset = async () => {
-    if (sessionId) await clearConversation(sessionId)
-    const fresh = await startNewConversation()
-    setSessionId(fresh)
-    setMessages([])
-    setSafetyBlocks({})
-    setSupportive(false)
-  }
+  const reset = resetConversation
 
   const unavailable = status && !status.ready
 
@@ -233,15 +157,6 @@ export default function AICompanion() {
 
   return (
     <div className="space-y-4">
-      <audio
-        ref={audioRef}
-        className="hidden"
-        onPlay={() => setSpeaking(true)}
-        onEnded={() => setSpeaking(false)}
-        onPause={() => setSpeaking(false)}
-        onError={() => setSpeaking(false)}
-      />
-
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-headline-md text-on-surface">AI Companion</h1>
