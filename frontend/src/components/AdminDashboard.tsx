@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { Users, ShieldCheck, Server, ScrollText, UserPlus, Link2, Loader2, Map, AlertOctagon } from "lucide-react"
+import { Users, ShieldCheck, Server, ScrollText, UserPlus, Link2, Loader2, Map, AlertOctagon, TrendingDown } from "lucide-react"
 import {
   AdminUser,
   Assignment,
@@ -268,6 +268,36 @@ export default function AdminDashboard() {
                           Acknowledge
                         </button>
                       )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 pt-4 border-t border-outline-variant">
+              <h3 className="text-label-md font-semibold text-primary mb-1.5 flex items-center gap-1.5">
+                <TrendingDown size={13} />
+                Predicted to escalate ({geo.escalating_cases.length})
+              </h3>
+              <p className="text-label-sm text-on-surface-variant/70 mb-2">
+                Not yet RED, but a sustained decline and/or unusual swing across recent check-ins -
+                a heuristic projection (see rationale per case), not a trained prediction model.
+              </p>
+              {geo.escalating_cases.length === 0 ? (
+                <p className="text-label-sm text-on-surface-variant/60">No cases trending toward escalation right now.</p>
+              ) : (
+                <div className="space-y-1">
+                  {geo.escalating_cases.map((c) => (
+                    <div key={c.aura_id} className="text-label-sm py-1.5 border-b border-surface-container-high last:border-0">
+                      <div className="flex justify-between">
+                        <span className="text-on-surface">
+                          {c.aura_id} <span className="text-on-surface-variant capitalize">({c.case_type.replace(/_/g, " ")})</span>
+                        </span>
+                        <span className="text-on-surface-variant">
+                          Currently {c.current_band} · {[c.district, c.state].filter(Boolean).join(", ") || "Unspecified location"}
+                        </span>
+                      </div>
+                      <p className="text-on-surface-variant/80 mt-0.5">{c.rationale}</p>
                     </div>
                   ))}
                 </div>

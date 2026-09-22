@@ -83,6 +83,27 @@ class Trend:
 
 
 @dataclass
+class EscalationRisk:
+    """A forward-looking HEURISTIC, not a trained prediction model - this
+    prototype has no labeled outcome data to train one on, and a fake
+    confidence-inspiring model number would be worse than an honestly
+    labeled rule. See compute_escalation_risk() for exactly what it checks.
+
+    level is deliberately named separately from risk_engine's current-state
+    "band" (GREEN/AMBER/RED): a case can be AMBER today but on this metric
+    be escalation_risk="elevated" because it has been getting worse for
+    three check-ins running - that combination is exactly what "predict
+    escalation before a crisis emerges" needs surfaced.
+    """
+
+    available: bool = False
+    level: str = "insufficient_data"  # low | elevated | high | insufficient_data
+    consecutive_worsening: int = 0
+    volatility: float = 0.0
+    rationale: str = "Not enough check-ins yet to project a trend forward."
+
+
+@dataclass
 class Engagement:
     """Behavioural signal only. Deliberately NOT treated as evidence of distress
     on its own - a missed check-in most often means a busy day."""
@@ -104,6 +125,7 @@ class DigitalTwin:
     current: CurrentState = field(default_factory=CurrentState)
     deviation: Deviation = field(default_factory=Deviation)
     trend: Trend = field(default_factory=Trend)
+    escalation_risk: EscalationRisk = field(default_factory=EscalationRisk)
     engagement: Engagement = field(default_factory=Engagement)
     # Latest multimodal signal summary, if a session has been run.
     signal_summary: Dict[str, object] = field(default_factory=dict)
@@ -282,6 +304,81 @@ def compute_trend(checkins: List[Dict], min_sessions: int = 4) -> Trend:
     )
 
 
+def compute_escalation_risk(checkins: List[Dict], min_sessions: int = 4) -> EscalationRisk:
+    """A documented, explainable HEURISTIC projecting the trend forward -
+    not a trained model (see EscalationRisk's docstring for why).
+
+    Two real, checkable signals, both computed the same way compute_trend()
+    already does (per-check-in mean of BASELINE_DIMENSIONS), so this reuses
+    the exact same "self-reported wellbeing score per check-in" series
+    rather than inventing a second, inconsistent measure:
+
+    - consecutive_worsening: how many of the most recent check-ins in a row
+      each scored lower than the one before - a SUSTAINED decline, not one
+      bad day.
+    - volatility: the population standard deviation of the last 6 scores -
+      a person swinging widely check-in to check-in is less predictable and
+      more likely to cross a threshold unexpectedly than one drifting
+      smoothly, even at the same average level.
+
+    level="high" requires BOTH a real sustained decline (>=3 in a row) AND
+    above-baseline-for-this-person volatility - either alone is treated as
+    "elevated", not "high", because a single noisy signal isn't enough to
+    warrant the strongest label.
+    """
+    scored = []
+    for entry in checkins:
+        values = [
+            float(entry[d]) for d in BASELINE_DIMENSIONS
+            if isinstance(entry.get(d), (int, float))
+        ]
+        if values:
+            scored.append(mean(values))
+
+    if len(scored) < min_sessions:
+        return EscalationRisk()
+
+    consecutive = 0
+    for i in range(len(scored) - 1, 0, -1):
+        if scored[i] < scored[i - 1]:
+            consecutive += 1
+        else:
+            break
+
+    recent = scored[-6:]
+    volatility = round(pstdev(recent), 2) if len(recent) >= 2 else 0.0
+    # A rough per-dimension scale of 0-10, so "high" volatility means swings
+    # of roughly 1.5+ points check-in to check-in, not statistical noise.
+    volatile = volatility >= 1.5
+
+    sustained_decline = consecutive >= 3
+
+    if sustained_decline and volatile:
+        level = "high"
+        rationale = (
+            f"{consecutive} consecutive check-ins have each scored lower than the last, "
+            f"with above-usual swing between check-ins (volatility {volatility}) - "
+            "both a sustained decline and instability, together."
+        )
+    elif sustained_decline:
+        level = "elevated"
+        rationale = f"{consecutive} consecutive check-ins have each scored lower than the last."
+    elif volatile:
+        level = "elevated"
+        rationale = f"Recent check-ins are swinging more than usual (volatility {volatility})."
+    else:
+        level = "low"
+        rationale = "No sustained decline or unusual swing across recent check-ins."
+
+    return EscalationRisk(
+        available=True,
+        level=level,
+        consecutive_worsening=consecutive,
+        volatility=volatility,
+        rationale=rationale,
+    )
+
+
 # --- Engagement ------------------------------------------------------------
 
 
@@ -352,6 +449,7 @@ def build_twin(
         current=current,
         deviation=compute_deviation(baseline, current),
         trend=compute_trend(ordered),
+        escalation_risk=compute_escalation_risk(ordered),
         engagement=compute_engagement(ordered, companion_events),
         signal_summary=signal_summary or {},
         updated_at=_now().isoformat(),

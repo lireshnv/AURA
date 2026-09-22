@@ -75,6 +75,13 @@ export interface TwinResponse {
       improving: string[]
     }
     trend: { direction: string; delta: number; sessions_compared: number; label: string }
+    escalation_risk: {
+      available: boolean
+      level: "low" | "elevated" | "high" | "insufficient_data"
+      consecutive_worsening: number
+      volatility: number
+      rationale: string
+    }
     engagement: {
       checkin_streak: number
       checkins_last_7d: number
@@ -101,6 +108,8 @@ export interface CaseRow {
   routing: string
   trend: string
   trend_label: string
+  escalation_risk: "low" | "elevated" | "high" | "insufficient_data"
+  escalation_rationale: string
   days_since_checkin: number | null
   checkins_last_7d: number
   priority: number
@@ -274,12 +283,23 @@ export interface HighRiskCase {
   priority: number
 }
 
+export interface EscalatingCase {
+  aura_id: string
+  case_type: string
+  district: string | null
+  state: string | null
+  current_band: RiskBand
+  rationale: string
+  priority: number
+}
+
 export interface GeoOverview {
   success: boolean
   national: { total: number; green: number; amber: number; red: number; unassessed: number }
   by_case_type: Record<string, number>
   states: StateRollup[]
   high_risk_cases: HighRiskCase[]
+  escalating_cases: EscalatingCase[]
 }
 
 export const fetchGeoOverview = () => getJson<GeoOverview>(`${AURA}/geo-overview`)

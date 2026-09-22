@@ -292,6 +292,8 @@ async def case_queue(
                 "routing": risk["routing"],
                 "trend": twin["trend"]["direction"],
                 "trend_label": twin["trend"]["label"],
+                "escalation_risk": twin["escalation_risk"]["level"],
+                "escalation_rationale": twin["escalation_risk"]["rationale"],
                 "days_since_checkin": twin["engagement"]["days_since_last_checkin"],
                 "checkins_last_7d": twin["engagement"]["checkins_last_7d"],
                 "priority": assessment["priority"],
@@ -316,6 +318,7 @@ async def case_queue(
             "pending_review": sum(1 for c in cases if c["risk_band"] in ("AMBER", "RED")),
             "improving": sum(1 for c in cases if c["trend"] == "improving"),
             "needs_followup": sum(1 for c in cases if c["trend"] == "worsening"),
+            "escalation_risk_high": sum(1 for c in cases if c["escalation_risk"] == "high"),
         },
         "cases": cases,
     }
@@ -422,10 +425,12 @@ async def geo_overview(
     by_case_type: Dict[str, int] = {}
     by_state: Dict[str, Dict] = {}
     high_risk_cases: List[Dict] = []
+    escalating_cases: List[Dict] = []
 
     for profile in profiles:
         assessment = _assess(profile.aura_id)
         band = assessment["risk"]["band"] if assessment else None
+        escalation = assessment["twin"]["escalation_risk"] if assessment else None
 
         national["total"] += 1
         if band == "GREEN":
@@ -466,7 +471,28 @@ async def geo_overview(
                 }
             )
 
+        # Predicted-to-escalate: a case that is NOT already RED but whose
+        # check-in history shows a sustained decline and/or unusual swing
+        # (digital_twin.compute_escalation_risk) - the spec's "predict
+        # escalation... before a crisis situation emerges", kept visibly
+        # separate from high_risk_cases (which is current-state RED) rather
+        # than merged into one list, since "already in crisis" and
+        # "heading that way on current trend" call for different responses.
+        if band in ("GREEN", "AMBER") and escalation and escalation["level"] == "high":
+            escalating_cases.append(
+                {
+                    "aura_id": profile.aura_id,
+                    "case_type": profile.case_type,
+                    "district": profile.district,
+                    "state": profile.state,
+                    "current_band": band,
+                    "rationale": escalation["rationale"],
+                    "priority": assessment["priority"],
+                }
+            )
+
     high_risk_cases.sort(key=lambda c: c["priority"], reverse=True)
+    escalating_cases.sort(key=lambda c: c["priority"], reverse=True)
 
     # Flatten the nested district dicts to lists for a simpler frontend shape.
     states_out = [
@@ -489,6 +515,7 @@ async def geo_overview(
         "by_case_type": by_case_type,
         "states": states_out,
         "high_risk_cases": high_risk_cases,
+        "escalating_cases": escalating_cases,
     }
 
 

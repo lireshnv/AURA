@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { ArrowDown, ArrowUp, Minus, UserCheck, Info, AlertTriangle } from "lucide-react"
+import { ArrowDown, ArrowUp, Minus, UserCheck, Info, AlertTriangle, TrendingDown } from "lucide-react"
 import {
   CaseQueue,
   CaseTypeOption,
@@ -321,13 +321,19 @@ function CasePicker({
         <button
           key={c.aura_id}
           onClick={() => onSelect(c.aura_id)}
-          className={`px-3 py-1.5 rounded-full text-label-sm font-medium border ${
+          title={c.escalation_risk === "high" ? c.escalation_rationale : undefined}
+          className={`px-3 py-1.5 rounded-full text-label-sm font-medium border flex items-center gap-1.5 ${
             selected === c.aura_id
               ? "bg-primary text-on-primary border-primary"
               : `border-outline-variant text-on-surface-variant hover:bg-surface-container-low ${BAND_STYLE[c.risk_band]}`
           }`}
         >
           {c.aura_id}
+          {c.escalation_risk === "high" && (
+            <span className={selected === c.aura_id ? "text-on-primary" : "text-error"} title="Predicted to escalate">
+              <TrendingDown size={12} />
+            </span>
+          )}
         </button>
       ))}
     </div>
