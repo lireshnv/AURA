@@ -889,7 +889,7 @@ export default function App() {
 
       {/* Side Panel: Camera preview + transcript */}
       <div className="lg:col-span-4 flex flex-col gap-gutter">
-        <div className="bg-surface-container-lowest rounded-[24px] shadow-ambient-md overflow-hidden relative aspect-video min-h-[280px]">
+        <div className="bg-surface-container-lowest rounded-[24px] shadow-ambient-md overflow-hidden relative aspect-[4/3] min-h-[380px]">
           <LiveEmotionCamera
             active={active}
             mode={mode}

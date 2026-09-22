@@ -4,9 +4,12 @@ import { Camera, CameraOff, AlertTriangle } from "lucide-react"
 import { CameraState, PerformanceMode, MODE_INTERVALS, AnalyzeResponse, DebugMetrics } from "../types"
 import { analyzeEmotion } from "../lib/api"
 
-const CAPTURE_WIDTH = 416
-const CAPTURE_HEIGHT = 312
-const JPEG_QUALITY = 0.75
+// Higher-fidelity capture than before (was 416x312 @ 0.75): more detail for
+// the face detector and the emotion model to work with, at a JPEG size that
+// is still small enough to upload well within the analysis interval.
+const CAPTURE_WIDTH = 640
+const CAPTURE_HEIGHT = 480
+const JPEG_QUALITY = 0.9
 
 interface Props {
   active: boolean
@@ -328,23 +331,48 @@ export default function LiveEmotionCamera({
         )}
       </AnimatePresence>
 
+      {/* Viewfinder corner brackets - only while actually live, so the frame
+          reads as an active instrument rather than decoration on a static
+          image. Pure CSS, no impact on the captured/analyzed frame itself. */}
+      {active && state !== "off" && (
+        <div className="pointer-events-none absolute inset-4">
+          {(["top-4 left-4 border-t-2 border-l-2 rounded-tl-lg", "top-4 right-4 border-t-2 border-r-2 rounded-tr-lg", "bottom-4 left-4 border-b-2 border-l-2 rounded-bl-lg", "bottom-4 right-4 border-b-2 border-r-2 rounded-br-lg"] as const).map(
+            (pos) => (
+              <span
+                key={pos}
+                className={`absolute w-6 h-6 ${pos} ${
+                  state === "result" && faceOk ? "border-emerald-400/80" : "border-white/50"
+                } transition-colors duration-300`}
+              />
+            )
+          )}
+        </div>
+      )}
+
       <div className="absolute top-3 left-3 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/50 backdrop-blur text-xs font-medium text-slate-900">
         {state === "off" ? (
           <CameraOff size={14} className="text-slate-500" />
         ) : (
-          <Camera
-            size={14}
-            className={
-              state === "result"
-                ? "text-emerald-600"
-                : state === "error"
-                ? "text-red-400"
-                : "text-amber-600"
-            }
-          />
+          <span className="relative flex h-2.5 w-2.5">
+            {state === "analyzing" && (
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+            )}
+            <span
+              className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
+                state === "result" ? "bg-emerald-500" : state === "error" ? "bg-red-500" : "bg-amber-500"
+              }`}
+            />
+          </span>
         )}
         <span>{statusLabel[state]}</span>
       </div>
+
+      {active && isReady && (
+        <div className="absolute top-3 right-3 px-2.5 py-1 rounded-full bg-black/50 backdrop-blur text-[10px] font-medium text-slate-100 flex items-center gap-1">
+          <Camera size={11} className="text-slate-300" />
+          {Math.round(1000 / MODE_INTERVALS[mode])}/s
+        </div>
+      )}
 
       {statusMessage && state !== "off" && (
         <div className="absolute bottom-3 left-3 right-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs">

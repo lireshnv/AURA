@@ -134,10 +134,15 @@ export interface Observation {
 
 export type PerformanceMode = "fast" | "balanced" | "power_saving"
 
+// Analysis cadence per frame, not per second - the in-flight guard in
+// LiveEmotionCamera (isAnalyzingRef) already skips a tick if the previous
+// request hasn't returned yet, so tightening this is safe even though real
+// per-frame inference is slower than these intervals: it just means "check
+// as often as possible" rather than risking request pile-up.
 export const MODE_INTERVALS: Record<PerformanceMode, number> = {
-  fast: 1000,
-  balanced: 2000,
-  power_saving: 3000,
+  fast: 400,
+  balanced: 1000,
+  power_saving: 2000,
 }
 
 export type CameraState =
