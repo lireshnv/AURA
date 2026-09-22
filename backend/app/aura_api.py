@@ -38,7 +38,7 @@ from sqlalchemy.orm import Session
 from . import ivrs_store, risk_service, twin_store
 from .core.config import settings
 from .database import get_db
-from .database.models import CounsellorAssignment, User
+from .database.models import AuditLog, CaseProfile, CounsellorAssignment, Intervention, User
 from .services.ivrs_conversation import CALL_REASONS, opening_line
 from .digital_twin import (
     BASELINE_DIMENSIONS,
@@ -91,6 +91,25 @@ class SupportDecision(BaseModel):
     decision: str            # approved | rejected
     decided_by: str
     rationale: Optional[str] = None
+
+
+# POA Act priority use cases (see the NHAA-14566 spec's "Priority Use Cases").
+# A closed set, not free text: support_pathways() below keys specific
+# recommendations (witness protection, relocation, etc.) off these values,
+# so an unrecognised case_type would silently fail to trigger them.
+CASE_TYPES = [
+    {"value": "rape_or_gang_rape", "label": "Rape / gang rape"},
+    {"value": "murder_grievous_hurt_arson", "label": "Murder, grievous hurt, or arson"},
+    {"value": "witness_intimidation", "label": "Witness facing intimidation or threats"},
+    {"value": "caste_based_violence", "label": "Family affected by caste-based violence"},
+    {"value": "other_poa_beneficiary", "label": "Other SC/ST (Prevention of Atrocities) Act beneficiary"},
+]
+_CASE_TYPE_VALUES = {c["value"] for c in CASE_TYPES}
+
+
+class CaseTypeUpdate(BaseModel):
+    case_type: str
+    notes: Optional[str] = None
 
 
 # --- Helpers --------------------------------------------------------------
@@ -300,12 +319,82 @@ async def case_queue(
     }
 
 
+@router.get("/case-types")
+async def case_types():
+    """Static POA Act case-type options for a classification dropdown."""
+    return {"success": True, "case_types": CASE_TYPES}
+
+
+@router.get("/case-type/{aura_id}")
+async def get_case_type(
+    aura_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if not can_access_victim(user, aura_id, db):
+        raise HTTPException(status_code=403, detail="Not authorised to view this case.")
+    row = db.query(CaseProfile).filter(CaseProfile.aura_id == aura_id).first()
+    if row is None:
+        return {"success": True, "has_data": False, "case_type": None, "notes": None}
+    return {"success": True, "has_data": True, "case_type": row.case_type, "notes": row.notes}
+
+
+@router.put("/case-type/{aura_id}")
+async def set_case_type(
+    aura_id: str,
+    payload: CaseTypeUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("counsellor", "admin")),
+):
+    """Classifies a case under the POA Act priority-use-case taxonomy.
+
+    Counsellor/admin only - this is a case-management fact, not a
+    self-reported victim answer, and it drives which interventions
+    support_pathways() below recommends.
+    """
+    if payload.case_type not in _CASE_TYPE_VALUES:
+        raise HTTPException(status_code=400, detail="Unrecognised case_type.")
+
+    row = db.query(CaseProfile).filter(CaseProfile.aura_id == aura_id).first()
+    if row is None:
+        row = CaseProfile(aura_id=aura_id, case_type=payload.case_type, notes=payload.notes, set_by_user_id=user.id)
+        db.add(row)
+    else:
+        row.case_type = payload.case_type
+        row.notes = payload.notes
+        row.set_by_user_id = user.id
+
+    db.add(
+        AuditLog(
+            actor_id=user.id,
+            actor_role=user.role,
+            action="case_type_set",
+            resource="case_profile",
+            resource_id=aura_id,
+            reason=payload.case_type,
+        )
+    )
+    db.commit()
+    return {"success": True, "case_type": payload.case_type, "notes": payload.notes}
+
+
 @router.get("/support/pathways/{aura_id}")
-async def support_pathways(aura_id: str):
-    """Pathways AURA SUGGESTS from real signals. A human decides."""
+async def support_pathways(
+    aura_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Pathways AURA SUGGESTS from real signals plus the case's POA Act
+    classification (if set). A human decides - see support_decision()."""
+    if not can_access_victim(user, aura_id, db):
+        raise HTTPException(status_code=403, detail="Not authorised to view this case.")
+
     assessment = _assess(aura_id)
     if assessment is None:
         return {"success": True, "has_data": False, "message": NO_DATA, "suggestions": []}
+
+    case_row = db.query(CaseProfile).filter(CaseProfile.aura_id == aura_id).first()
+    case_type = case_row.case_type if case_row else None
 
     risk, twin = assessment["risk"], assessment["twin"]
     suggestions: List[Dict] = []
@@ -332,6 +421,54 @@ async def support_pathways(aura_id: str):
         suggest("Wellbeing check call", "Check-in engagement decreased this week.")
     if "sleep" in twin["deviation"]["worsening"]:
         suggest("Medical support referral", "Self-reported sleep moved below their usual range.")
+
+    # --- POA Act case-type-driven pathways (spec: "Recommend appropriate
+    #     interventions such as counselling, medical treatment, witness
+    #     protection, relocation support, financial assistance, legal aid,
+    #     or rehabilitation measures.") Each rule names the exact case fact
+    #     that triggered it, matching this file's explainability convention. ---
+    if case_type in ("rape_or_gang_rape", "murder_grievous_hurt_arson"):
+        suggest(
+            "Medical treatment",
+            f"Case classified as {case_type.replace('_', ' ')} - physical harm likely; "
+            "medical evaluation is a standard POA Act relief measure.",
+            "priority",
+        )
+    if case_type == "witness_intimidation" or (
+        case_type == "caste_based_violence" and risk["band"] in ("AMBER", "RED")
+    ):
+        suggest(
+            "Witness protection",
+            f"Case classified as {case_type.replace('_', ' ')}"
+            + (f" with {risk['band']} risk band" if case_type == "caste_based_violence" else "")
+            + " - threat exposure warrants a protection review.",
+            "priority",
+        )
+        suggest(
+            "Relocation support",
+            "Continued proximity to the accused/threat source is a relocation-eligible "
+            "circumstance under the POA Act rules.",
+            "priority" if risk["band"] == "RED" else "routine",
+        )
+    if case_type is not None:
+        suggest(
+            "Financial assistance",
+            f"Case classified as {case_type.replace('_', ' ')} - eligible for POA Act "
+            "relief/compensation; a benefits review is due regardless of risk band.",
+        )
+        suggest(
+            "Legal aid",
+            "POA Act cases are entitled to free legal aid through the investigation "
+            "and trial process.",
+        )
+    if risk["band"] == "RED" or twin["trend"]["direction"] == "worsening":
+        suggest(
+            "Rehabilitation",
+            "Sustained high distress or a worsening trend indicates a need for "
+            "structured long-term rehabilitation, not a one-off intervention.",
+            "priority" if risk["band"] == "RED" else "routine",
+        )
+
     if not suggestions:
         suggest("Routine monitoring", "No elevated signals; continue scheduled check-ins.")
 
@@ -339,6 +476,7 @@ async def support_pathways(aura_id: str):
         "success": True,
         "has_data": True,
         "aura_id": aura_id,
+        "case_type": case_type,
         "suggestions": suggestions,
         "decision_authority": "authorised_human",
         "note": (
@@ -348,19 +486,82 @@ async def support_pathways(aura_id: str):
     }
 
 
+@router.get("/support/history/{aura_id}")
+async def support_history(
+    aura_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Persisted intervention decisions for this case - survives a page
+    reload or a different counsellor picking the case back up, unlike
+    keeping decisions only in the reviewing browser's local state."""
+    if not can_access_victim(user, aura_id, db):
+        raise HTTPException(status_code=403, detail="Not authorised to view this case.")
+    rows = (
+        db.query(Intervention)
+        .filter(Intervention.aura_id == aura_id)
+        .order_by(Intervention.created_at.desc())
+        .all()
+    )
+    return {
+        "success": True,
+        "interventions": [
+            {
+                "id": r.id,
+                "pathway": r.pathway,
+                "status": r.status,
+                "reason": r.recommended_reason,
+                "decided_by": r.decided_by,
+                "decided_at": r.decided_at.isoformat() if r.decided_at else None,
+                "created_at": r.created_at.isoformat(),
+            }
+            for r in rows
+        ],
+    }
+
+
 @router.post("/support/decision")
-async def support_decision(payload: SupportDecision):
-    """Records a HUMAN decision on a suggested pathway."""
-    if payload.decision not in ("approved", "rejected"):
-        return {"success": False, "error": "Decision must be 'approved' or 'rejected'."}
+async def support_decision(
+    payload: SupportDecision,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("counsellor", "admin")),
+):
+    """Records a HUMAN decision on a suggested pathway - persisted, not just
+    echoed back, so it survives a reload and is visible to any other
+    authorised reviewer of this case (district/state rollups included)."""
+    if payload.decision not in ("approved", "rejected", "escalated"):
+        return {"success": False, "error": "Decision must be 'approved', 'rejected', or 'escalated'."}
     if not payload.decided_by.strip():
         return {
             "success": False,
             "error": "A decision must record the authorised person who made it.",
         }
+
+    row = Intervention(
+        aura_id=payload.aura_id,
+        pathway=payload.pathway,
+        status=payload.decision,
+        recommended_reason=payload.rationale,
+        decided_by=f"{payload.decided_by} ({user.id})",
+        decided_at=datetime.now(timezone.utc),
+    )
+    db.add(row)
+    db.add(
+        AuditLog(
+            actor_id=user.id,
+            actor_role=user.role,
+            action=f"intervention_{payload.decision}",
+            resource="intervention",
+            resource_id=payload.aura_id,
+            reason=payload.rationale or payload.pathway,
+        )
+    )
+    db.commit()
+
     return {
         "success": True,
         "recorded": {
+            "id": row.id,
             "aura_id": payload.aura_id,
             "pathway": payload.pathway,
             "status": payload.decision,

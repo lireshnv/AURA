@@ -2,13 +2,19 @@ import { useEffect, useMemo, useState } from "react"
 import { ArrowDown, ArrowUp, Minus, UserCheck, Info, AlertTriangle } from "lucide-react"
 import {
   CaseQueue,
+  CaseTypeOption,
+  InterventionRecord,
   RiskBand,
   SupportSuggestion,
   TwinResponse,
   fetchCaseQueue,
+  fetchCaseType,
+  fetchCaseTypes,
+  fetchSupportHistory,
   fetchSupportPathways,
   fetchTwin,
   recordSupportDecision,
+  setCaseType,
 } from "../lib/auraApi"
 import { fetchAuditLog, recordReview, AuditEntryRow } from "../lib/riskApi"
 
@@ -404,6 +410,53 @@ function AnalysisTab({ queue, selected, onSelect }: { queue: CaseQueue | null; s
 }
 
 // ---------------------------------------------------------------------------
+// Case-type classification (POA Act priority use cases) - drives which
+// interventions support_pathways() recommends below it.
+// ---------------------------------------------------------------------------
+function CaseTypeSelector({ auraId, onChanged }: { auraId: string; onChanged: () => void }) {
+  const [options, setOptions] = useState<CaseTypeOption[] | null>(null)
+  const [value, setValue] = useState<string>("")
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    fetchCaseTypes().then((d) => setOptions(d?.case_types ?? []))
+  }, [])
+
+  useEffect(() => {
+    setValue("")
+    fetchCaseType(auraId).then((d) => setValue(d?.case_type ?? ""))
+  }, [auraId])
+
+  const save = async (next: string) => {
+    setValue(next)
+    if (!next) return
+    setSaving(true)
+    await setCaseType(auraId, next)
+    setSaving(false)
+    onChanged()
+  }
+
+  return (
+    <div className="flex items-center gap-2.5 rounded-lg border border-outline-variant bg-surface-container px-3 py-2">
+      <span className="text-label-sm text-on-surface-variant shrink-0">POA Act case type</span>
+      <select
+        value={value}
+        onChange={(e) => save(e.target.value)}
+        disabled={!options || saving}
+        className="flex-1 bg-surface-container-lowest border border-outline-variant rounded-lg px-2 py-1 text-label-md text-on-surface disabled:opacity-50"
+      >
+        <option value="">Not classified yet</option>
+        {(options ?? []).map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Action Required — Accept / Modify / Dismiss / Escalate
 // ---------------------------------------------------------------------------
 type DecisionState = { status: "approved" | "rejected" | "escalated"; note?: string }
@@ -424,28 +477,31 @@ function ActionRequiredTab({
   const [pathways, setPathways] = useState<SupportSuggestion[] | null>(null)
   const [modifyOpen, setModifyOpen] = useState<string | null>(null)
   const [modifyText, setModifyText] = useState("")
+  const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
     if (!selected) return
     setPathways(null)
     fetchSupportPathways(selected).then((d) => setPathways(d?.suggestions ?? []))
-  }, [selected])
+  }, [selected, refreshKey])
 
   const key = (pathway: string) => `${selected}::${pathway}`
 
   const act = async (pathway: string, action: "approved" | "rejected" | "escalated", note?: string) => {
     if (!selected) return
     if (action === "escalated") {
+      // Both: the audit-log trail other views (Follow-up) already read from,
+      // and a persisted Intervention row so Care Plan's real history shows
+      // it too instead of only living in this component's local state.
       await recordReview({ aura_id: selected, action: "follow_up_requested", actor_role: "counsellor", reason: note ?? `Escalated: ${pathway}` })
-    } else {
-      await recordSupportDecision({
-        aura_id: selected,
-        pathway,
-        decision: action,
-        decided_by: "counsellor",
-        rationale: note ?? "Reviewed signals and case context.",
-      })
     }
+    await recordSupportDecision({
+      aura_id: selected,
+      pathway,
+      decision: action,
+      decided_by: "counsellor",
+      rationale: note ?? "Reviewed signals and case context.",
+    })
     setDecisions((p) => ({ ...p, [key(pathway)]: { status: action, note } }))
     setModifyOpen(null)
     setModifyText("")
@@ -454,6 +510,7 @@ function ActionRequiredTab({
   return (
     <div className="flex flex-col gap-stack-md">
       <CasePicker queue={queue} selected={selected} onSelect={onSelect} />
+      {selected && <CaseTypeSelector auraId={selected} onChanged={() => setRefreshKey((k) => k + 1)} />}
       {!selected ? (
         <Card><p className="text-body-md text-on-surface-variant">Select a case above to review recommended actions.</p></Card>
       ) : pathways === null ? (
@@ -533,6 +590,17 @@ function CarePlanTab({
   onSelect: (id: string) => void
   decisions: Record<string, DecisionState>
 }) {
+  const [twin, setTwin] = useState<TwinResponse | null>(null)
+  const [history, setHistory] = useState<InterventionRecord[] | null>(null)
+
+  useEffect(() => {
+    if (!selected) return
+    setTwin(null)
+    setHistory(null)
+    fetchTwin(selected).then(setTwin)
+    fetchSupportHistory(selected).then((d) => setHistory(d?.interventions ?? []))
+  }, [selected])
+
   if (!selected) {
     return (
       <div className="flex flex-col gap-stack-md">
@@ -541,13 +609,30 @@ function CarePlanTab({
       </div>
     )
   }
-  const rnd = seededRandom(selected + ":care")
-  const concerns = ["Sleep disruption", "Social withdrawal", "Elevated distress on check-ins"].filter(() => rnd() > 0.35)
-  const goals = ["Re-establish daily check-in routine", "Increase peer contact", "Stabilise mood trend over 2 weeks"].filter(() => rnd() > 0.3)
-  const progress = Math.floor(rnd() * 70) + 15
-  const interventions = Object.entries(decisions)
+
+  // Real concerns/goals derived from the same twin/risk data Analysis shows -
+  // no seeded flavour text. Concerns = why the risk band is what it is;
+  // goals = the dimensions currently trending worse against this person's
+  // own baseline, i.e. what care should actually be aimed at.
+  const concerns = twin?.has_data ? twin.risk.contributing_factors.map((f) => `${f.factor} — ${f.detail}`) : []
+  const goals = twin?.has_data
+    ? twin.twin.deviation.worsening.map((dim) => `Bring ${dim} back toward this person's usual range`)
+    : []
+
+  // Persisted decisions (from a prior session too, not just this browser tab)
+  // plus anything decided in this same visit that the history fetch above
+  // predates.
+  const liveOnly = Object.entries(decisions)
     .filter(([k]) => k.startsWith(`${selected}::`))
-    .map(([k, v]) => ({ pathway: k.split("::")[1], ...v }))
+    .map(([k, v]) => ({ pathway: k.split("::")[1], status: v.status, note: v.note }))
+  const historyPathways = new Set((history ?? []).map((h) => h.pathway))
+  const interventions = [
+    ...(history ?? []).map((h) => ({ pathway: h.pathway, status: h.status, note: h.reason ?? undefined })),
+    ...liveOnly.filter((l) => !historyPathways.has(l.pathway)),
+  ]
+
+  const decided = interventions.filter((i) => i.status === "approved" || i.status === "completed").length
+  const progress = interventions.length > 0 ? Math.round((decided / interventions.length) * 100) : null
 
   return (
     <div className="flex flex-col gap-stack-md">
@@ -557,7 +642,7 @@ function CarePlanTab({
           <h4 className="text-label-md text-on-surface-variant mb-2">Concerns</h4>
           {concerns.length === 0 ? <p className="text-label-sm text-on-surface-variant/60">None flagged.</p> : (
             <ul className="list-disc list-inside space-y-1 text-label-md text-on-surface">
-              {concerns.map((c) => <li key={c}>{c}</li>)}
+              {concerns.map((c, i) => <li key={i}>{c}</li>)}
             </ul>
           )}
         </div>
@@ -565,7 +650,7 @@ function CarePlanTab({
           <h4 className="text-label-md text-on-surface-variant mb-2">Goals</h4>
           {goals.length === 0 ? <p className="text-label-sm text-on-surface-variant/60">None set.</p> : (
             <ul className="list-disc list-inside space-y-1 text-label-md text-on-surface">
-              {goals.map((g) => <li key={g}>{g}</li>)}
+              {goals.map((g, i) => <li key={i}>{g}</li>)}
             </ul>
           )}
         </div>
@@ -575,8 +660,8 @@ function CarePlanTab({
             <p className="text-label-sm text-on-surface-variant/60">No decisions recorded yet for this case.</p>
           ) : (
             <div className="space-y-1.5">
-              {interventions.map((i) => (
-                <div key={i.pathway} className="flex justify-between text-label-sm border-b border-outline-variant/40 pb-1">
+              {interventions.map((i, idx) => (
+                <div key={idx} className="flex justify-between text-label-sm border-b border-outline-variant/40 pb-1">
                   <span className="text-on-surface">{i.pathway}</span>
                   <span className="text-on-surface-variant">{i.status}{i.note ? ` — ${i.note}` : ""}</span>
                 </div>
@@ -586,10 +671,18 @@ function CarePlanTab({
         </div>
         <div className="md:col-span-2">
           <h4 className="text-label-md text-on-surface-variant mb-1">Progress</h4>
-          <div className="h-2.5 rounded-full bg-surface-container-low overflow-hidden">
-            <div className="h-full bg-primary rounded-full" style={{ width: `${progress}%` }} />
-          </div>
-          <p className="text-label-sm text-on-surface-variant mt-1">{progress}% toward goals</p>
+          {progress === null ? (
+            <p className="text-label-sm text-on-surface-variant/60">No interventions recorded yet.</p>
+          ) : (
+            <>
+              <div className="h-2.5 rounded-full bg-surface-container-low overflow-hidden">
+                <div className="h-full bg-primary rounded-full" style={{ width: `${progress}%` }} />
+              </div>
+              <p className="text-label-sm text-on-surface-variant mt-1">
+                {progress}% of recorded interventions approved or completed
+              </p>
+            </>
+          )}
         </div>
       </Card>
     </div>
@@ -717,8 +810,8 @@ function ReportsTab({
               {interventions.length === 0 ? (
                 <p className="text-label-md text-on-surface-variant/60">None recorded this session.</p>
               ) : (
-                interventions.map((i) => (
-                  <p key={i.pathway} className="text-label-md text-on-surface">{i.pathway}: {i.status}</p>
+                interventions.map((i, idx) => (
+                  <p key={idx} className="text-label-md text-on-surface">{i.pathway}: {i.status}</p>
                 ))
               )}
             </div>
@@ -809,7 +902,7 @@ export default function CounsellorDashboard() {
 
       <p className="text-label-sm text-on-surface-variant/50 text-center">
         <UserCheck size={11} className="inline mr-1 -mt-0.5" />
-        Care Plan goals/progress and Follow-up due dates shown here are illustrative placeholders — AURA does not yet store structured care-plan or scheduling data.
+        Follow-up due dates shown here are illustrative placeholders — AURA does not yet store structured scheduling data. Care Plan concerns/goals/progress and recorded interventions are real, derived from this case's own signals and decisions.
       </p>
     </div>
   )

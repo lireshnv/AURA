@@ -155,7 +155,7 @@ export const fetchTwin = (auraId: string) =>
 export const fetchCaseQueue = () => getJson<CaseQueue>(`${AURA}/cases`)
 
 export const fetchSupportPathways = (auraId: string) =>
-  getJson<{ suggestions: SupportSuggestion[]; decision_authority: string; note: string }>(
+  getJson<{ suggestions: SupportSuggestion[]; decision_authority: string; note: string; case_type: string | null }>(
     `${AURA}/support/pathways/${auraId}`
   )
 
@@ -182,14 +182,15 @@ export async function seedDemoData(): Promise<{ success: boolean; note?: string;
 export async function recordSupportDecision(body: {
   aura_id: string
   pathway: string
-  decision: "approved" | "rejected"
+  decision: "approved" | "rejected" | "escalated"
   decided_by: string
   rationale?: string
 }) {
   try {
     const res = await fetch(`${AURA}/support/decision`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeader() },
+      credentials: "include",
       body: JSON.stringify(body),
     })
     return await res.json()
@@ -197,3 +198,45 @@ export async function recordSupportDecision(body: {
     return { success: false, error: "Could not reach the service." }
   }
 }
+
+export interface CaseTypeOption {
+  value: string
+  label: string
+}
+
+export interface InterventionRecord {
+  id: string
+  pathway: string
+  status: string
+  reason: string | null
+  decided_by: string | null
+  decided_at: string | null
+  created_at: string
+}
+
+export const fetchCaseTypes = () =>
+  getJson<{ success: boolean; case_types: CaseTypeOption[] }>(`${AURA}/case-types`)
+
+export const fetchCaseType = (auraId: string) =>
+  getJson<{ success: boolean; has_data: boolean; case_type: string | null; notes: string | null }>(
+    `${AURA}/case-type/${auraId}`
+  )
+
+export async function setCaseType(auraId: string, caseType: string, notes?: string) {
+  try {
+    const res = await fetch(`${AURA}/case-type/${auraId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...authHeader() },
+      credentials: "include",
+      body: JSON.stringify({ case_type: caseType, notes }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) return { success: false, error: data.detail ?? "Could not save case type." }
+    return { success: true, ...data }
+  } catch {
+    return { success: false, error: "Could not reach the server." }
+  }
+}
+
+export const fetchSupportHistory = (auraId: string) =>
+  getJson<{ success: boolean; interventions: InterventionRecord[] }>(`${AURA}/support/history/${auraId}`)

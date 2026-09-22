@@ -571,6 +571,24 @@ class Intervention(Base, TimestampMixin):
     )
 
 
+class CaseProfile(Base, TimestampMixin):
+    """POA Act case-type classification, one row per aura_id.
+
+    Deliberately separate from VictimProfile (identity-adjacent onboarding
+    data): this is a case-management fact set by a counsellor/admin, not a
+    self-reported answer, and it keys off aura_id like every other
+    analysis-adjacent table rather than user_id.
+    """
+
+    __tablename__ = "case_profiles"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    aura_id: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    case_type: Mapped[str] = mapped_column(String(40))
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    set_by_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+
+
 class RecoveryRecord(Base, TimestampMixin):
     __tablename__ = "recovery_records"
 
