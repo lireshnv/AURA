@@ -296,7 +296,7 @@ export default function AICompanion() {
             </select>
             <button
               onClick={reset}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-outline-variant text-xs text-on-surface-variant hover:bg-surface-container-high"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-outline-variant text-xs text-on-surface-variant hover:bg-surface-container-high transition-colors"
             >
               <Plus size={13} />
               New
@@ -304,7 +304,7 @@ export default function AICompanion() {
             {messages.length > 0 && (
               <button
                 onClick={reset}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-outline-variant text-xs text-on-surface-variant hover:bg-surface-container-high"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-outline-variant text-xs text-on-surface-variant hover:bg-surface-container-high transition-colors"
               >
                 <Trash2 size={13} />
                 Clear
@@ -319,7 +319,7 @@ export default function AICompanion() {
       <div className="flex gap-1.5 rounded-full bg-surface-container-low p-1 w-fit">
         <button
           onClick={() => setMode("chat")}
-          className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-label-md font-medium transition-colors ${
+          className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-label-md font-medium transition-all duration-200 active:scale-95 ${
             mode === "chat" ? "bg-surface-container-lowest text-primary shadow-sm" : "text-on-surface-variant"
           }`}
         >
@@ -327,7 +327,7 @@ export default function AICompanion() {
         </button>
         <button
           onClick={() => setMode("talk")}
-          className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-label-md font-medium transition-colors ${
+          className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-label-md font-medium transition-all duration-200 active:scale-95 ${
             mode === "talk" ? "bg-surface-container-lowest text-primary shadow-sm" : "text-on-surface-variant"
           }`}
         >
@@ -336,9 +336,11 @@ export default function AICompanion() {
       </div>
 
       {mode === "talk" ? (
-        <AuraVoiceConversation sessionKey={TALK_SESSION_KEY} />
+        <div key="talk" className="animate-fade-in-up">
+          <AuraVoiceConversation sessionKey={TALK_SESSION_KEY} />
+        </div>
       ) : (
-        <>
+        <div key="chat" className="animate-fade-in-up space-y-4">
       {unavailable && (
         <div className="flex items-start gap-2 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3">
           <AlertTriangle size={15} className="text-amber-600 mt-0.5 shrink-0" />
@@ -364,7 +366,7 @@ export default function AICompanion() {
             <button
               onClick={toggleSound}
               title={soundOn ? "Mute companion sounds" : "Unmute companion sounds"}
-              className="w-6 h-6 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-surface-container-high"
+              className="w-6 h-6 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-surface-container-high transition-colors"
             >
               {soundOn ? <Volume2 size={13} /> : <VolumeX size={13} />}
             </button>
@@ -422,7 +424,7 @@ export default function AICompanion() {
           {isPlant ? (
             <button
               onClick={() => doCareAction("water")}
-              className="flex flex-col items-center gap-1 rounded-xl border border-outline-variant py-2.5 hover:bg-surface-container-high"
+              className="flex flex-col items-center gap-1 rounded-xl border border-outline-variant py-2.5 hover:bg-surface-container-high active:scale-95 transition-all"
             >
               <Droplets size={17} className="text-sky-600" />
               <span className="text-[11px] text-on-surface-variant">Water</span>
@@ -430,7 +432,7 @@ export default function AICompanion() {
           ) : (
             <button
               onClick={() => doCareAction("feed")}
-              className="flex flex-col items-center gap-1 rounded-xl border border-outline-variant py-2.5 hover:bg-surface-container-high"
+              className="flex flex-col items-center gap-1 rounded-xl border border-outline-variant py-2.5 hover:bg-surface-container-high active:scale-95 transition-all"
             >
               <Bone size={17} className="text-amber-600" />
               <span className="text-[11px] text-on-surface-variant">Feed</span>
@@ -439,14 +441,14 @@ export default function AICompanion() {
           <button
             onClick={doCheckin}
             disabled={checkinBusy}
-            className="flex flex-col items-center gap-1 rounded-xl border border-outline-variant py-2.5 hover:bg-surface-container-high disabled:opacity-50"
+            className="flex flex-col items-center gap-1 rounded-xl border border-outline-variant py-2.5 hover:bg-surface-container-high active:scale-95 transition-all disabled:opacity-50 disabled:active:scale-100"
           >
             <HeartHandshake size={17} className="text-rose-600" />
             <span className="text-[11px] text-on-surface-variant">Check-in</span>
           </button>
           <button
             onClick={() => setShowActivity(true)}
-            className="flex flex-col items-center gap-1 rounded-xl border border-outline-variant py-2.5 hover:bg-surface-container-high"
+            className="flex flex-col items-center gap-1 rounded-xl border border-outline-variant py-2.5 hover:bg-surface-container-high active:scale-95 transition-all"
           >
             <Sparkles size={17} className="text-violet-600" />
             <span className="text-[11px] text-on-surface-variant">Activity</span>
@@ -464,7 +466,7 @@ export default function AICompanion() {
             {(showTranscript ? messages : messages.slice(-PARTIAL_MESSAGE_COUNT)).map((m, i) => {
               const realIndex = showTranscript ? i : messages.length - Math.min(messages.length, PARTIAL_MESSAGE_COUNT) + i
               return (
-                <div key={realIndex}>
+                <div key={realIndex} className="animate-fade-in-up">
                   {m.role === "user" ? (
                     <div className="flex justify-end">
                       <div className="max-w-[80%] rounded-2xl rounded-br-sm bg-primary text-on-primary px-4 py-2.5 text-sm whitespace-pre-wrap">
@@ -489,11 +491,19 @@ export default function AICompanion() {
               )
             })}
             {sending && (
-              <div className="flex gap-3 items-center">
+              <div className="flex gap-3 items-center animate-fade-in-up">
                 <div className="w-7 h-7 rounded-full bg-primary-container/10 border border-primary/20 flex items-center justify-center shrink-0">
                   <span className="text-primary font-bold text-[11px]">A</span>
                 </div>
-                <span className="text-xs text-on-surface-variant italic">AURA is typing…</span>
+                <div className="flex items-center gap-1 rounded-full bg-surface-container-high px-3 py-2">
+                  {[0, 1, 2].map((i) => (
+                    <span
+                      key={i}
+                      className="animate-typing-dot w-1.5 h-1.5 rounded-full bg-on-surface-variant"
+                      style={{ animationDelay: `${i * 0.15}s` }}
+                    />
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -502,7 +512,7 @@ export default function AICompanion() {
         {messages.length > PARTIAL_MESSAGE_COUNT && (
           <button
             onClick={() => setShowTranscript((v) => !v)}
-            className="w-full text-center text-[11px] font-medium text-primary py-2 border-t border-outline-variant hover:bg-surface-container-high"
+            className="w-full text-center text-[11px] font-medium text-primary py-2 border-t border-outline-variant hover:bg-surface-container-high transition-colors"
           >
             {showTranscript ? "Show less" : `View full conversation (${messages.length})`}
           </button>
@@ -523,12 +533,12 @@ export default function AICompanion() {
               }}
               rows={1}
               placeholder="Type your message…"
-              className="flex-1 resize-none rounded-lg border border-outline-variant px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant focus:outline-none focus:ring-2 focus:ring-primary max-h-32"
+              className="flex-1 resize-none rounded-lg border border-outline-variant px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant focus:outline-none focus:ring-2 focus:ring-primary max-h-32 transition-shadow"
             />
             <button
               onClick={() => send(input)}
               disabled={!input.trim() || sending}
-              className="p-2.5 rounded-lg bg-primary hover:bg-primary-fixed-dim text-on-primary shrink-0 disabled:opacity-40"
+              className="p-2.5 rounded-lg bg-primary hover:bg-primary-fixed-dim active:scale-95 text-on-primary shrink-0 disabled:opacity-40 disabled:active:scale-100 transition-all"
             >
               <Send size={16} />
             </button>
@@ -543,7 +553,7 @@ export default function AICompanion() {
       {showActivity && (
         <ActivityModal onClose={() => setShowActivity(false)} onComplete={completeActivity} />
       )}
-        </>
+        </div>
       )}
     </div>
   )

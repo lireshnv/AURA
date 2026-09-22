@@ -341,12 +341,12 @@ export default function AuraVoiceConversation({
             <p className="text-label-sm text-error mb-3 max-w-sm">{micError}</p>
           )}
 
-          <div className="flex items-center gap-3">
+          <div key={phase} className="flex items-center gap-3 animate-fade-in-up">
             {phase === "idle" && (
               <button
                 onClick={start}
                 disabled={!!unavailable}
-                className="flex items-center gap-2 rounded-full bg-primary text-on-primary px-6 py-3.5 text-label-md font-semibold disabled:opacity-40 hover:bg-primary-fixed-dim"
+                className="flex items-center gap-2 rounded-full bg-primary text-on-primary px-6 py-3.5 text-label-md font-semibold disabled:opacity-40 hover:bg-primary-fixed-dim active:scale-95 transition-all"
               >
                 <Mic size={18} /> Start Talking
               </button>
@@ -355,13 +355,13 @@ export default function AuraVoiceConversation({
               <>
                 <button
                   onClick={pause}
-                  className="flex items-center gap-2 rounded-full border border-outline-variant px-5 py-3 text-label-md font-semibold text-on-surface hover:bg-surface-container-high"
+                  className="flex items-center gap-2 rounded-full border border-outline-variant px-5 py-3 text-label-md font-semibold text-on-surface hover:bg-surface-container-high active:scale-95 transition-all"
                 >
                   <Pause size={16} /> Pause
                 </button>
                 <button
                   onClick={end}
-                  className="flex items-center gap-2 rounded-full bg-error text-on-error px-5 py-3 text-label-md font-semibold"
+                  className="flex items-center gap-2 rounded-full bg-error text-on-error px-5 py-3 text-label-md font-semibold active:scale-95 transition-transform"
                 >
                   <Square size={16} /> End
                 </button>
@@ -371,13 +371,13 @@ export default function AuraVoiceConversation({
               <>
                 <button
                   onClick={resume}
-                  className="flex items-center gap-2 rounded-full bg-primary text-on-primary px-5 py-3 text-label-md font-semibold"
+                  className="flex items-center gap-2 rounded-full bg-primary text-on-primary px-5 py-3 text-label-md font-semibold active:scale-95 transition-transform"
                 >
                   <Play size={16} /> Continue
                 </button>
                 <button
                   onClick={end}
-                  className="flex items-center gap-2 rounded-full border border-outline-variant px-5 py-3 text-label-md font-semibold text-on-surface hover:bg-surface-container-high"
+                  className="flex items-center gap-2 rounded-full border border-outline-variant px-5 py-3 text-label-md font-semibold text-on-surface hover:bg-surface-container-high active:scale-95 transition-all"
                 >
                   End
                 </button>
@@ -405,22 +405,22 @@ export default function AuraVoiceConversation({
 
           {/* Quick choices after Aura's very first reply */}
           {phase === "listening" && messages.length === 2 && (
-            <div className="flex flex-wrap justify-center gap-2 mt-5">
+            <div className="flex flex-wrap justify-center gap-2 mt-5 animate-fade-in-up">
               <button
                 onClick={() => sendStreaming("Talk more")}
-                className="rounded-full border border-outline-variant px-4 py-2 text-label-md text-on-surface hover:border-primary hover:bg-primary-container/10"
+                className="rounded-full border border-outline-variant px-4 py-2 text-label-md text-on-surface hover:border-primary hover:bg-primary-container/10 active:scale-95 transition-all"
               >
                 Talk more
               </button>
               <button
                 onClick={() => setShowCalmActivity(true)}
-                className="rounded-full border border-outline-variant px-4 py-2 text-label-md text-on-surface hover:border-primary hover:bg-primary-container/10"
+                className="rounded-full border border-outline-variant px-4 py-2 text-label-md text-on-surface hover:border-primary hover:bg-primary-container/10 active:scale-95 transition-all"
               >
                 Calm down
               </button>
               <button
                 onClick={() => sendStreaming("I'm not sure")}
-                className="rounded-full border border-outline-variant px-4 py-2 text-label-md text-on-surface hover:border-primary hover:bg-primary-container/10"
+                className="rounded-full border border-outline-variant px-4 py-2 text-label-md text-on-surface hover:border-primary hover:bg-primary-container/10 active:scale-95 transition-all"
               >
                 I'm not sure
               </button>
@@ -432,18 +432,18 @@ export default function AuraVoiceConversation({
       {activeSafety && phase !== "ended" && <SafetyPanel safety={activeSafety} />}
 
       {phase !== "idle" && phase !== "ended" && messages.length > 0 && (
-        <div className="rounded-xl bg-surface-container-low border border-outline-variant p-4 mb-4 max-h-72 overflow-y-auto">
+        <div className="rounded-xl bg-surface-container-low border border-outline-variant p-4 mb-4 max-h-72 overflow-y-auto animate-fade-in-up">
           {!showFullTranscript && messages.length > TRANSCRIPT_PREVIEW && (
             <button
               onClick={() => setShowFullTranscript(true)}
-              className="text-label-sm text-primary hover:underline mb-3"
+              className="text-label-sm text-primary hover:underline mb-3 transition-colors"
             >
               View full transcript
             </button>
           )}
           <div className="space-y-3">
             {visibleMessages.map((m, i) => (
-              <div key={i}>
+              <div key={i} className="animate-fade-in-up">
                 <p className="text-label-sm font-semibold text-on-surface-variant mb-0.5">
                   {m.role === "user" ? "You" : "Aura"}
                 </p>
@@ -497,7 +497,7 @@ export default function AuraVoiceConversation({
       )}
 
       {phase === "ended" && (
-        <div className="text-center py-4">
+        <div className="text-center py-4 animate-fade-in-up">
           <h3 className="text-headline-md text-on-surface mb-1">Conversation Complete</h3>
           <p className="text-body-md text-on-surface-variant mb-6">Thank you for talking with me.</p>
 
@@ -524,7 +524,7 @@ export default function AuraVoiceConversation({
                   <button
                     key={value}
                     onClick={() => submitFeedback(value)}
-                    className="rounded-full border border-outline-variant px-4 py-2 text-label-md text-on-surface hover:border-primary hover:bg-primary-container/10"
+                    className="rounded-full border border-outline-variant px-4 py-2 text-label-md text-on-surface hover:border-primary hover:bg-primary-container/10 active:scale-95 transition-all"
                   >
                     {label}
                   </button>
@@ -532,20 +532,20 @@ export default function AuraVoiceConversation({
               </div>
             </>
           ) : (
-            <div className="flex flex-col items-center gap-3">
+            <div className="flex flex-col items-center gap-3 animate-fade-in-up">
               <p className="text-body-md text-on-surface mb-2 max-w-sm">{FOLLOWUP_MESSAGE[feedback]}</p>
               <p className="text-label-md font-semibold text-on-surface mb-1">What would you like to do next?</p>
               <div className="flex flex-wrap justify-center gap-2">
                 <button
                   onClick={continueTalking}
-                  className="rounded-xl bg-primary text-on-primary px-4 py-2.5 text-label-md font-semibold"
+                  className="rounded-xl bg-primary text-on-primary px-4 py-2.5 text-label-md font-semibold active:scale-95 transition-transform"
                 >
                   Continue talking
                 </button>
                 {onOpenSupport && (
                   <button
                     onClick={onOpenSupport}
-                    className="rounded-xl border border-outline-variant px-4 py-2.5 text-label-md text-on-surface hover:bg-surface-container-high"
+                    className="rounded-xl border border-outline-variant px-4 py-2.5 text-label-md text-on-surface hover:bg-surface-container-high active:scale-95 transition-all"
                   >
                     Try something calming
                   </button>
@@ -553,7 +553,7 @@ export default function AuraVoiceConversation({
                 {onOpenInsights && (
                   <button
                     onClick={onOpenInsights}
-                    className="rounded-xl border border-outline-variant px-4 py-2.5 text-label-md text-on-surface hover:bg-surface-container-high"
+                    className="rounded-xl border border-outline-variant px-4 py-2.5 text-label-md text-on-surface hover:bg-surface-container-high active:scale-95 transition-all"
                   >
                     View insights
                   </button>
@@ -561,7 +561,7 @@ export default function AuraVoiceConversation({
                 {onOpenSupport && (
                   <button
                     onClick={onOpenSupport}
-                    className="rounded-xl border border-outline-variant px-4 py-2.5 text-label-md text-on-surface hover:bg-surface-container-high"
+                    className="rounded-xl border border-outline-variant px-4 py-2.5 text-label-md text-on-surface hover:bg-surface-container-high active:scale-95 transition-all"
                   >
                     Get support
                   </button>
@@ -575,7 +575,7 @@ export default function AuraVoiceConversation({
               setPhase("idle")
               reset()
             }}
-            className="text-label-sm text-on-surface-variant hover:text-primary mt-6"
+            className="text-label-sm text-on-surface-variant hover:text-primary mt-6 transition-colors"
           >
             Start a brand new conversation instead
           </button>
