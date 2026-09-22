@@ -30,20 +30,20 @@ import {
   streamChatMessage,
 } from "./chatApi"
 
-const SESSION_STORAGE_KEY = "aura_companion_session_id"
+const DEFAULT_SESSION_STORAGE_KEY = "aura_companion_session_id"
 
-function getStoredSession(): string | null {
+function getStoredSession(key: string): string | null {
   try {
-    return sessionStorage.getItem(SESSION_STORAGE_KEY)
+    return sessionStorage.getItem(key)
   } catch {
     return null
   }
 }
 
-function setStoredSession(id: string | null) {
+function setStoredSession(key: string, id: string | null) {
   try {
-    if (id) sessionStorage.setItem(SESSION_STORAGE_KEY, id)
-    else sessionStorage.removeItem(SESSION_STORAGE_KEY)
+    if (id) sessionStorage.setItem(key, id)
+    else sessionStorage.removeItem(key)
   } catch {
     /* per-browser convenience only - conversation still works without it */
   }
@@ -64,7 +64,14 @@ function stripMarkdownForSpeech(text: string): string {
 // completed sentences inside a still-growing stream buffer.
 const SENTENCE_END = /^[\s\S]*?[.!?](?:\s|$)/
 
-export function useAuraConversation(language: string) {
+/**
+ * `sessionKey` lets two independent surfaces (e.g. AI Companion's separate
+ * "Chat" and "Talk to Aura" modes) each keep their own session id and
+ * history in sessionStorage, rather than sharing the one default key -
+ * still the exact same backend endpoint/session store, just two distinct
+ * sessions instead of one continued across surfaces.
+ */
+export function useAuraConversation(language: string, sessionKey: string = DEFAULT_SESSION_STORAGE_KEY) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [safetyBlocks, setSafetyBlocks] = useState<Record<number, SafetyBlock>>({})
   const [sessionId, setSessionId] = useState<string | null>(null)
@@ -102,7 +109,7 @@ export function useAuraConversation(language: string) {
       if (!cancelled) setStatus(s)
     })
     ;(async () => {
-      const existing = getStoredSession()
+      const existing = getStoredSession(sessionKey)
       if (existing) {
         const history = await fetchHistory(existing)
         if (cancelled) return
@@ -114,12 +121,13 @@ export function useAuraConversation(language: string) {
       const fresh = await startNewConversation()
       if (cancelled) return
       setSessionId(fresh)
-      setStoredSession(fresh)
+      setStoredSession(sessionKey, fresh)
       setReady(true)
     })()
     return () => {
       cancelled = true
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const runQueueWorker = useCallback(async () => {
@@ -183,7 +191,7 @@ export function useAuraConversation(language: string) {
   const stopSpeaking = interrupt
 
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, speak: boolean = true) => {
       if (!text.trim() || sending) return
 
       setMessages((m) => [...m, { role: "user", content: text }])
@@ -192,7 +200,7 @@ export function useAuraConversation(language: string) {
       const reply = await sendChatMessage(text, sessionId, language)
       if (reply.session_id) {
         setSessionId(reply.session_id)
-        setStoredSession(reply.session_id)
+        setStoredSession(sessionKey, reply.session_id)
       }
 
       setSupportive(!!reply.safety?.triggered)
@@ -204,10 +212,10 @@ export function useAuraConversation(language: string) {
         return next
       })
       setSending(false)
-      if (reply.status === "success") playReply(reply.response)
+      if (speak && reply.status === "success") playReply(reply.response)
       return reply
     },
-    [sending, sessionId, playReply, language]
+    [sending, sessionId, playReply, language, sessionKey]
   )
 
   /**
@@ -240,7 +248,7 @@ export function useAuraConversation(language: string) {
         {
           onSessionId: (id) => {
             setSessionId(id)
-            setStoredSession(id)
+            setStoredSession(sessionKey, id)
           },
           onDelta: (delta) => {
             buffer += delta
@@ -274,7 +282,7 @@ export function useAuraConversation(language: string) {
       if (streamAbortRef.current === controller) streamAbortRef.current = null
       setSending(false)
     },
-    [sending, sessionId, enqueueSpeech]
+    [sending, sessionId, enqueueSpeech, sessionKey]
   )
 
   /**
@@ -298,11 +306,11 @@ export function useAuraConversation(language: string) {
     if (sessionId) await clearConversation(sessionId)
     const fresh = await startNewConversation()
     setSessionId(fresh)
-    setStoredSession(fresh)
+    setStoredSession(sessionKey, fresh)
     setMessages([])
     setSafetyBlocks({})
     setSupportive(false)
-  }, [sessionId, interrupt])
+  }, [sessionId, interrupt, sessionKey])
 
   return {
     messages,

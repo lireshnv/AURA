@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import {
   Send,
-  Mic,
-  Square,
   Plus,
   Trash2,
   AlertTriangle,
@@ -14,8 +12,10 @@ import {
   Droplets,
   HeartHandshake,
   Sparkles,
+  MessageSquare,
+  Mic,
 } from "lucide-react"
-import { SafetyBlock, transcribeVoice } from "../lib/chatApi"
+import { SafetyBlock } from "../lib/chatApi"
 import { useAuraConversation } from "../lib/useAuraConversation"
 import { LANGUAGE_OPTIONS, getStoredLanguage, storeLanguage } from "../lib/companionLanguages"
 import {
@@ -30,6 +30,10 @@ import AvatarModule from "./AvatarModule"
 import { useAvatarIdentity } from "./AvatarModule/useAvatarIdentity"
 import { AvatarAnimationState, Expression } from "./AvatarModule/types"
 import { ActivityModal, CareReactionPanel, ReactionKind } from "./DailyCare"
+import AuraVoiceConversation from "./AuraVoiceConversation"
+
+const CHAT_SESSION_KEY = "aura_companion_chat_session_id"
+const TALK_SESSION_KEY = "aura_companion_talk_session_id"
 
 /**
  * AURA AI Companion.
@@ -119,9 +123,8 @@ export function SafetyPanel({ safety }: { safety: SafetyBlock }) {
 }
 
 export default function AICompanion() {
+  const [mode, setMode] = useState<"chat" | "talk">("chat")
   const [input, setInput] = useState("")
-  const [recording, setRecording] = useState(false)
-  const [transcribing, setTranscribing] = useState(false)
   const [language, setLanguage] = useState<string>(getStoredLanguage)
   const [showTranscript, setShowTranscript] = useState(false)
   const [pokeReaction, setPokeReaction] = useState<AvatarAnimationState | null>(null)
@@ -160,24 +163,25 @@ export default function AICompanion() {
   }
 
   const scrollRef = useRef<HTMLDivElement>(null)
-  const recorderRef = useRef<MediaRecorder | null>(null)
-  const chunksRef = useRef<Blob[]>([])
 
+  // Chat is a separate conversation/history from Talk to Aura (see the
+  // "talk" branch below) - same backend, same Aura, but not the same
+  // session: typing here never shows up in the voice transcript or vice
+  // versa. Chat also never speaks (no TTS, no mic) - it's text-only.
   const {
     messages,
     safetyBlocks,
     sending,
-    speaking,
     supportive,
     status,
     send: sendRaw,
     reset: resetConversation,
-  } = useAuraConversation(language)
+  } = useAuraConversation(language, CHAT_SESSION_KEY)
 
   const send = async (text: string) => {
     if (!text.trim() || sending) return
     setInput("")
-    await sendRaw(text)
+    await sendRaw(text, false)
   }
 
   useEffect(() => {
@@ -226,43 +230,12 @@ export default function AICompanion() {
     poke()
   }
 
-  const toggleRecording = async () => {
-    if (recording) {
-      recorderRef.current?.stop()
-      setRecording(false)
-      return
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const recorder = new MediaRecorder(stream)
-      chunksRef.current = []
-      recorder.ondataavailable = (e) => chunksRef.current.push(e.data)
-      recorder.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop())
-        const blob = new Blob(chunksRef.current, { type: "audio/webm" })
-        setTranscribing(true)
-        const text = await transcribeVoice(blob)
-        setTranscribing(false)
-        if (text) send(text)
-      }
-      recorder.start()
-      recorderRef.current = recorder
-      setRecording(true)
-    } catch {
-      setRecording(false)
-    }
-  }
-
   const reset = resetConversation
 
   const unavailable = status && !status.ready
 
-  const avatarAnimation: AvatarAnimationState = recording
-    ? "listening"
-    : sending || transcribing
+  const avatarAnimation: AvatarAnimationState = sending
     ? "thinking"
-    : speaking
-    ? "talking"
     : supportive
     ? "concerned"
     : "idle"
@@ -304,41 +277,68 @@ export default function AICompanion() {
         <div>
           <h1 className="text-headline-md text-on-surface">AI Companion</h1>
           <p className="text-body-md text-on-surface-variant mt-0.5">
-            A private space to talk. You can share as much or as little as you want.
+            Two separate ways to reach Aura, each with its own conversation.
           </p>
         </div>
-        <div className="flex gap-2 shrink-0">
-          <select
-            value={language}
-            onChange={(e) => changeLanguage(e.target.value)}
-            title="Reply language"
-            className="px-2 py-1.5 rounded-lg border border-outline-variant text-xs text-on-surface-variant bg-surface-container-lowest hover:bg-surface-container-low"
-          >
-            {LANGUAGE_OPTIONS.map((opt) => (
-              <option key={opt.code} value={opt.code}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-          <button
-            onClick={reset}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-outline-variant text-xs text-on-surface-variant hover:bg-surface-container-high"
-          >
-            <Plus size={13} />
-            New
-          </button>
-          {messages.length > 0 && (
+        {mode === "chat" && (
+          <div className="flex gap-2 shrink-0">
+            <select
+              value={language}
+              onChange={(e) => changeLanguage(e.target.value)}
+              title="Reply language"
+              className="px-2 py-1.5 rounded-lg border border-outline-variant text-xs text-on-surface-variant bg-surface-container-lowest hover:bg-surface-container-low"
+            >
+              {LANGUAGE_OPTIONS.map((opt) => (
+                <option key={opt.code} value={opt.code}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
             <button
               onClick={reset}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-outline-variant text-xs text-on-surface-variant hover:bg-surface-container-high"
             >
-              <Trash2 size={13} />
-              Clear
+              <Plus size={13} />
+              New
             </button>
-          )}
-        </div>
+            {messages.length > 0 && (
+              <button
+                onClick={reset}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-outline-variant text-xs text-on-surface-variant hover:bg-surface-container-high"
+              >
+                <Trash2 size={13} />
+                Clear
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
+      {/* Chat and Talk to Aura are two separate conversations (own history
+          each) answered by the same Aura backend - not two chatbots. */}
+      <div className="flex gap-1.5 rounded-full bg-surface-container-low p-1 w-fit">
+        <button
+          onClick={() => setMode("chat")}
+          className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-label-md font-medium transition-colors ${
+            mode === "chat" ? "bg-surface-container-lowest text-primary shadow-sm" : "text-on-surface-variant"
+          }`}
+        >
+          <MessageSquare size={14} /> Chat
+        </button>
+        <button
+          onClick={() => setMode("talk")}
+          className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-label-md font-medium transition-colors ${
+            mode === "talk" ? "bg-surface-container-lowest text-primary shadow-sm" : "text-on-surface-variant"
+          }`}
+        >
+          <Mic size={14} /> Talk to Aura
+        </button>
+      </div>
+
+      {mode === "talk" ? (
+        <AuraVoiceConversation sessionKey={TALK_SESSION_KEY} />
+      ) : (
+        <>
       {unavailable && (
         <div className="flex items-start gap-2 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3">
           <AlertTriangle size={15} className="text-amber-600 mt-0.5 shrink-0" />
@@ -522,21 +522,9 @@ export default function AICompanion() {
                 }
               }}
               rows={1}
-              placeholder={recording ? "Listening…" : transcribing ? "Transcribing…" : "Type your message…"}
+              placeholder="Type your message…"
               className="flex-1 resize-none rounded-lg border border-outline-variant px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant focus:outline-none focus:ring-2 focus:ring-primary max-h-32"
             />
-            <button
-              onClick={toggleRecording}
-              disabled={transcribing}
-              title={recording ? "Stop recording" : "Start voice input"}
-              className={`p-2.5 rounded-lg border shrink-0 disabled:opacity-40 ${
-                recording
-                  ? "bg-error-container border-error/40 text-on-error-container"
-                  : "border-outline-variant text-on-surface-variant hover:bg-surface-container-high"
-              }`}
-            >
-              {recording ? <Square size={16} /> : <Mic size={16} />}
-            </button>
             <button
               onClick={() => send(input)}
               disabled={!input.trim() || sending}
@@ -546,18 +534,16 @@ export default function AICompanion() {
             </button>
           </div>
           <p className="flex items-center gap-1.5 text-[10px] text-on-surface-variant mt-2">
-            {status?.tts_available ? (
-              <Volume2 size={10} />
-            ) : (
-              <Info size={10} />
-            )}
-            AURA is an AI companion and does not replace professional care. If you are in
-            danger, please contact your local emergency number.
+            <Info size={10} />
+            Text only, no voice - AURA is an AI companion and does not replace professional care.
+            If you are in danger, please contact your local emergency number.
           </p>
       </div>
 
       {showActivity && (
         <ActivityModal onClose={() => setShowActivity(false)} onComplete={completeActivity} />
+      )}
+        </>
       )}
     </div>
   )

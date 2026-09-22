@@ -14,7 +14,7 @@ import { SafetyPanel, renderMarkdown } from "./AICompanion"
 type Phase = "idle" | "listening" | "thinking" | "speaking" | "paused" | "ended"
 type FeelingAfter = "better" | "slightly_better" | "same" | "worse" | "not_sure"
 
-const POLL_MS = 120
+const POLL_MS = 80
 const TRANSCRIPT_PREVIEW = 4
 
 const FOLLOWUP_MESSAGE: Record<FeelingAfter, string> = {
@@ -26,19 +26,27 @@ const FOLLOWUP_MESSAGE: Record<FeelingAfter, string> = {
 }
 
 interface Props {
-  cameraActive: boolean
-  onToggleCamera: (on: boolean) => void
+  /** Omitted entirely on a standalone surface (e.g. AI Companion's "Talk to
+   * Aura" tab) that has no face/voice-signal analysis or camera concept -
+   * every analysis-page-only prop below is optional and simply unused when
+   * absent, rather than this being a second component. */
+  cameraActive?: boolean
+  onToggleCamera?: (on: boolean) => void
   /** Starts the same voice-signal analysis pipeline "Analyse Now" starts
    * (Distress Signal, Synchronized Signals, Multimodal Timeline) - Speak
    * with Aura IS that action for voice, combined into one interactive
    * control rather than two separate buttons to press. */
-  onStartAnalysis: () => void
-  onStopAnalysis: () => void
-  onOpenSupport: () => void
-  onOpenInsights: () => void
+  onStartAnalysis?: () => void
+  onStopAnalysis?: () => void
+  onOpenSupport?: () => void
+  onOpenInsights?: () => void
   /** Plain-language observation, e.g. "Increased vocal tension was detected
-   * during part of the conversation." Null when nothing to report yet. */
-  observationSummary: string | null
+   * during part of the conversation." Null/omitted when nothing to report. */
+  observationSummary?: string | null
+  /** Keeps this surface's session/history independent from any other
+   * useAuraConversation instance on the page (e.g. AI Companion's separate
+   * Chat tab) - same backend, its own conversation. */
+  sessionKey?: string
 }
 
 /**
@@ -57,6 +65,7 @@ export default function AuraVoiceConversation({
   onOpenSupport,
   onOpenInsights,
   observationSummary,
+  sessionKey,
 }: Props) {
   const [language, setLanguage] = useState<string>(getStoredLanguage)
   const [phase, setPhase] = useState<Phase>("idle")
@@ -67,7 +76,7 @@ export default function AuraVoiceConversation({
   const [micError, setMicError] = useState<string | null>(null)
 
   const { messages, safetyBlocks, sending, speaking, status, sendStreaming, interrupt, reset, greet } =
-    useAuraConversation(language)
+    useAuraConversation(language, sessionKey)
 
   const captureRef = useRef<RollingAudioCapture | null>(null)
   const pollRef = useRef<number | null>(null)
@@ -156,7 +165,10 @@ export default function AuraVoiceConversation({
   const start = async () => {
     setMicError(null)
     try {
-      const capture = new RollingAudioCapture(2, 700, 20)
+      // Shorter trailing-silence window than the analysis-page capture (700ms)
+      // trades a slightly higher chance of a mid-thought cutoff for snappier
+      // turn-taking - the priority explicitly asked for here.
+      const capture = new RollingAudioCapture(2, 550, 20)
       await capture.start()
       captureRef.current = capture
       pausedRef.current = false
@@ -164,8 +176,8 @@ export default function AuraVoiceConversation({
       // One interactive control: talking to Aura also starts the same
       // voice AND face analysis "Analyse Now" would, rather than needing
       // three separate buttons.
-      onStartAnalysis()
-      onToggleCamera(true)
+      onStartAnalysis?.()
+      onToggleCamera?.(true)
       // Aura opens the conversation immediately instead of sitting silently
       // until the user speaks first - a scripted, spoken opener, not a
       // fabricated model reply (see useAuraConversation's greet()).
@@ -209,7 +221,7 @@ export default function AuraVoiceConversation({
     stopCapture()
     setPhase("ended")
     setFeedback(null)
-    onStopAnalysis()
+    onStopAnalysis?.()
   }
 
   const submitFeedback = async (result: FeelingAfter) => {
@@ -300,8 +312,17 @@ export default function AuraVoiceConversation({
       {phase !== "ended" && (
         <div className="flex flex-col items-center text-center py-6">
           {phase === "idle" && <h1 className="text-headline-lg text-on-surface mb-1">Speak with Aura</h1>}
-          <div className="w-32 h-32 rounded-full overflow-hidden mb-4 bg-primary-container/10">
-            <AvatarModule drivenAnimation={avatarAnimation} compact />
+          <div className="relative w-64 h-56 md:w-72 md:h-64 mb-4">
+            {derivedPhase === "speaking" && (
+              <>
+                <span className="animate-voice-ring absolute inset-0 rounded-[32px] bg-primary/40" style={{ animationDelay: "0s" }} />
+                <span className="animate-voice-ring absolute inset-0 rounded-[32px] bg-primary/40" style={{ animationDelay: "0.5s" }} />
+                <span className="animate-voice-ring absolute inset-0 rounded-[32px] bg-primary/40" style={{ animationDelay: "1s" }} />
+              </>
+            )}
+            <div className="relative w-full h-full rounded-[28px] overflow-hidden bg-primary-container/10">
+              <AvatarModule drivenAnimation={avatarAnimation} compact interactive />
+            </div>
           </div>
           <p className="text-body-lg text-on-surface font-medium mb-1">{statusText[derivedPhase]}</p>
           {phase === "idle" && (
@@ -447,20 +468,24 @@ export default function AuraVoiceConversation({
               <span>
                 Speech <span className="text-secondary font-medium">{transcribing || sending ? "Processing" : "Ready"}</span>
               </span>
-              <span className="flex items-center gap-1">
-                Face{" "}
-                <span className={cameraActive ? "text-secondary font-medium" : "text-on-surface-variant"}>
-                  {cameraActive ? "On" : "Camera off"}
+              {onToggleCamera && (
+                <span className="flex items-center gap-1">
+                  Face{" "}
+                  <span className={cameraActive ? "text-secondary font-medium" : "text-on-surface-variant"}>
+                    {cameraActive ? "On" : "Camera off"}
+                  </span>
                 </span>
-              </span>
+              )}
             </div>
-            <button
-              onClick={() => onToggleCamera(!cameraActive)}
-              className="flex items-center gap-1.5 text-label-sm text-on-surface-variant hover:text-primary"
-            >
-              {cameraActive ? <VideoOff size={14} /> : <Video size={14} />}
-              {cameraActive ? "Turn camera off" : "Enable camera analysis"}
-            </button>
+            {onToggleCamera && (
+              <button
+                onClick={() => onToggleCamera(!cameraActive)}
+                className="flex items-center gap-1.5 text-label-sm text-on-surface-variant hover:text-primary"
+              >
+                {cameraActive ? <VideoOff size={14} /> : <Video size={14} />}
+                {cameraActive ? "Turn camera off" : "Enable camera analysis"}
+              </button>
+            )}
           </div>
           {observationSummary && (
             <p className="text-label-sm text-on-surface-variant mt-3 pt-3 border-t border-outline-variant">
@@ -517,24 +542,30 @@ export default function AuraVoiceConversation({
                 >
                   Continue talking
                 </button>
-                <button
-                  onClick={onOpenSupport}
-                  className="rounded-xl border border-outline-variant px-4 py-2.5 text-label-md text-on-surface hover:bg-surface-container-high"
-                >
-                  Try something calming
-                </button>
-                <button
-                  onClick={onOpenInsights}
-                  className="rounded-xl border border-outline-variant px-4 py-2.5 text-label-md text-on-surface hover:bg-surface-container-high"
-                >
-                  View insights
-                </button>
-                <button
-                  onClick={onOpenSupport}
-                  className="rounded-xl border border-outline-variant px-4 py-2.5 text-label-md text-on-surface hover:bg-surface-container-high"
-                >
-                  Get support
-                </button>
+                {onOpenSupport && (
+                  <button
+                    onClick={onOpenSupport}
+                    className="rounded-xl border border-outline-variant px-4 py-2.5 text-label-md text-on-surface hover:bg-surface-container-high"
+                  >
+                    Try something calming
+                  </button>
+                )}
+                {onOpenInsights && (
+                  <button
+                    onClick={onOpenInsights}
+                    className="rounded-xl border border-outline-variant px-4 py-2.5 text-label-md text-on-surface hover:bg-surface-container-high"
+                  >
+                    View insights
+                  </button>
+                )}
+                {onOpenSupport && (
+                  <button
+                    onClick={onOpenSupport}
+                    className="rounded-xl border border-outline-variant px-4 py-2.5 text-label-md text-on-surface hover:bg-surface-container-high"
+                  >
+                    Get support
+                  </button>
+                )}
               </div>
             </div>
           )}

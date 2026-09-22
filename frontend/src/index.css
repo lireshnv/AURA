@@ -194,6 +194,24 @@ body {
   animation: care-pop-in 0.35s ease-out both;
 }
 
+/* Talk to Aura: concentric rings that pulse outward while she's speaking,
+   so the companion visibly "moves" with her voice rather than just the
+   3D model's own idle motion. Three rings at staggered delays read as one
+   continuous pulse instead of a single repeating ring. */
+@keyframes voice-ring-pulse {
+  0% {
+    transform: scale(0.85);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(1.55);
+    opacity: 0;
+  }
+}
+.animate-voice-ring {
+  animation: voice-ring-pulse 1.6s ease-out infinite;
+}
+
 /* Restrained scrollbars for the transcript / history lists. */
 ::-webkit-scrollbar {
   width: 8px;
