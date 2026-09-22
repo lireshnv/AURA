@@ -27,7 +27,7 @@ import {
 } from "../lib/twinApi"
 import AvatarModule from "./AvatarModule"
 import { useAvatarIdentity } from "./AvatarModule/useAvatarIdentity"
-import { AvatarAnimationState } from "./AvatarModule/types"
+import { AvatarAnimationState, Expression } from "./AvatarModule/types"
 import { ActivityModal, CareReactionPanel, ReactionKind } from "./DailyCare"
 
 /**
@@ -60,6 +60,35 @@ export function renderMarkdown(text: string): string {
     .replace(/\n{2,}/g, '</p><p class="mt-2">')
     .replace(/\n/g, "<br/>")
 }
+
+/** A tiny synthesized chirp (no audio asset) for a pet/feed/check-in
+ * reaction - shared AudioContext so repeated taps don't leak nodes. */
+let boopCtx: AudioContext | null = null
+function playBoop(freq = 660) {
+  try {
+    boopCtx ??= new AudioContext()
+    if (boopCtx.state === "suspended") boopCtx.resume().catch(() => {})
+    const osc = boopCtx.createOscillator()
+    const gain = boopCtx.createGain()
+    osc.type = "sine"
+    osc.frequency.setValueAtTime(freq, boopCtx.currentTime)
+    osc.frequency.exponentialRampToValueAtTime(freq * 1.5, boopCtx.currentTime + 0.09)
+    gain.gain.setValueAtTime(0.08, boopCtx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, boopCtx.currentTime + 0.16)
+    osc.connect(gain).connect(boopCtx.destination)
+    osc.start()
+    osc.stop(boopCtx.currentTime + 0.17)
+  } catch {
+    /* best-effort - a silent companion is still a working one */
+  }
+}
+
+const EXPRESSION_PICKS: { value: Expression; emoji: string; label: string }[] = [
+  { value: "natural", emoji: "🙂", label: "Natural" },
+  { value: "happy", emoji: "😄", label: "Happy" },
+  { value: "calm", emoji: "😌", label: "Calm" },
+  { value: "surprised", emoji: "😮", label: "Surprised" },
+]
 
 export function SafetyPanel({ safety }: { safety: SafetyBlock }) {
   const urgent = safety.severity === "urgent"
@@ -99,6 +128,8 @@ export default function AICompanion() {
   const [language, setLanguage] = useState<string>(getStoredLanguage)
   const [showTranscript, setShowTranscript] = useState(false)
   const [pokeReaction, setPokeReaction] = useState<AvatarAnimationState | null>(null)
+  const [petting, setPetting] = useState(false)
+  const [expression, setExpression] = useState<Expression>("natural")
 
   const { avatarType } = useAvatarIdentity()
   const isPlant = avatarType === "plant"
@@ -220,15 +251,22 @@ export default function AICompanion() {
     ? "concerned"
     : "idle"
 
-  // A poked reaction briefly overrides the live conversation state so tapping
-  // the companion always feels acknowledged, then hands control back.
-  const effectiveAnimation: AvatarAnimationState = pokeReaction ?? avatarAnimation
+  // A poke/pet briefly overrides the live conversation state so touching the
+  // companion always feels acknowledged, then hands control back.
+  const effectiveAnimation: AvatarAnimationState = petting ? "greeting" : pokeReaction ?? avatarAnimation
 
   const poke = () => {
+    playBoop()
     if (pokeReaction) return
     setPokeReaction("greeting")
     window.setTimeout(() => setPokeReaction(null), 1600)
   }
+
+  const startPetting = () => {
+    setPetting(true)
+    playBoop(520)
+  }
+  const stopPetting = () => setPetting(false)
 
   const lastAssistantMessage = [...messages].reverse().find((m) => m.role === "assistant")
 
@@ -301,14 +339,50 @@ export default function AICompanion() {
         </div>
 
         <div className="relative">
-          <button
+          <div
+            role="button"
+            tabIndex={0}
+            title="Tap or hold to pet - drag to look around"
             onClick={poke}
-            title="Tap to say hi"
-            className="block w-full h-72 md:h-96 px-4 pb-2 cursor-pointer"
+            onPointerDown={startPetting}
+            onPointerUp={stopPetting}
+            onPointerLeave={stopPetting}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault()
+                poke()
+              }
+            }}
+            className="w-full h-72 md:h-96 px-4 pb-2 cursor-pointer"
           >
-            <AvatarModule drivenAnimation={effectiveAnimation} compact />
-          </button>
+            <AvatarModule
+              drivenAnimation={effectiveAnimation}
+              expression={expression}
+              compact
+              showSwitcher
+              interactive
+            />
+          </div>
           {carePanel && <CareReactionPanel kind={carePanel} onDone={() => setCarePanel(null)} />}
+        </div>
+
+        {/* Purely playful - lets you set how the companion looks, with no
+            effect on the app's actual data or state. */}
+        <div className="flex items-center gap-1.5 px-5 pb-3">
+          {EXPRESSION_PICKS.map((p) => (
+            <button
+              key={p.value}
+              onClick={() => setExpression(p.value)}
+              title={p.label}
+              className={`w-8 h-8 rounded-full flex items-center justify-center text-base transition-colors ${
+                expression === p.value
+                  ? "bg-primary-container/25 ring-2 ring-primary"
+                  : "hover:bg-surface-container-high"
+              }`}
+            >
+              {p.emoji}
+            </button>
+          ))}
         </div>
 
         {careSummary && !careSummary.consent && (

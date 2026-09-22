@@ -30,14 +30,31 @@ export default function AvatarModule({
   amplitude = 0,
   className = "",
   compact = false,
+  interactive,
+  showSwitcher = false,
+  expression: expressionProp,
+  onExpressionChange,
 }: {
   drivenAnimation?: AvatarAnimationState
   amplitude?: number
   className?: string
   compact?: boolean
+  /** Overrides the default (drag-to-rotate only outside compact mode) so a
+   * compact viewer can still be a hands-on toy, e.g. on AI Companion. */
+  interactive?: boolean
+  /** Compact-mode-only: shows a small "change companion" control (+ the
+   * custom-model uploader when Custom is picked) under the viewer, without
+   * pulling in the full dropdown/expression/lip-sync panel below it. */
+  showSwitcher?: boolean
+  /** Lets a host drive expression itself (e.g. a playful emoji picker on AI
+   * Companion) instead of the module's own internal state. */
+  expression?: Expression
+  onExpressionChange?: (e: Expression) => void
 }) {
   const { avatarType, setAvatarType } = useAvatarIdentity()
-  const [expression, setExpression] = useState<Expression>("natural")
+  const [internalExpression, setInternalExpression] = useState<Expression>("natural")
+  const expression = expressionProp ?? internalExpression
+  const setExpression = onExpressionChange ?? setInternalExpression
   const [animationSelection, setAnimationSelection] = useState<AnimationSelection>("auto")
   const [lipSyncEnabled, setLipSyncEnabled] = useState(true)
   // Uploaded files produce a blob: URL, only valid for this page session.
@@ -53,12 +70,28 @@ export default function AvatarModule({
       animation={effectiveAnimation}
       amplitude={amplitude}
       lipSyncEnabled={lipSyncEnabled}
-      interactive={!compact}
+      interactive={interactive ?? !compact}
     />
   )
 
   if (compact) {
-    return <div className={`w-full h-full rounded-2xl overflow-hidden ${className}`}>{viewer}</div>
+    return (
+      <div className={`w-full h-full flex flex-col gap-2 ${className}`}>
+        <div className="flex-1 min-h-0 rounded-2xl overflow-hidden">{viewer}</div>
+        {showSwitcher && (
+          <div
+            className="shrink-0 flex items-center justify-between gap-2"
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <AvatarTypeDropdown value={avatarType} onChange={setAvatarType} />
+            {avatarType === "custom" && (
+              <CustomizeButton avatarType={avatarType} onCustomAvatarUploaded={setCustomGlbUrl} />
+            )}
+          </div>
+        )}
+      </div>
+    )
   }
 
   return (
