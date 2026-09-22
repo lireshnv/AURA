@@ -110,6 +110,8 @@ _CASE_TYPE_VALUES = {c["value"] for c in CASE_TYPES}
 class CaseTypeUpdate(BaseModel):
     case_type: str
     notes: Optional[str] = None
+    district: Optional[str] = None
+    state: Optional[str] = None
 
 
 # --- Helpers --------------------------------------------------------------
@@ -335,8 +337,14 @@ async def get_case_type(
         raise HTTPException(status_code=403, detail="Not authorised to view this case.")
     row = db.query(CaseProfile).filter(CaseProfile.aura_id == aura_id).first()
     if row is None:
-        return {"success": True, "has_data": False, "case_type": None, "notes": None}
-    return {"success": True, "has_data": True, "case_type": row.case_type, "notes": row.notes}
+        return {
+            "success": True, "has_data": False, "case_type": None, "notes": None,
+            "district": None, "state": None,
+        }
+    return {
+        "success": True, "has_data": True, "case_type": row.case_type, "notes": row.notes,
+        "district": row.district, "state": row.state,
+    }
 
 
 @router.put("/case-type/{aura_id}")
@@ -357,11 +365,20 @@ async def set_case_type(
 
     row = db.query(CaseProfile).filter(CaseProfile.aura_id == aura_id).first()
     if row is None:
-        row = CaseProfile(aura_id=aura_id, case_type=payload.case_type, notes=payload.notes, set_by_user_id=user.id)
+        row = CaseProfile(
+            aura_id=aura_id,
+            case_type=payload.case_type,
+            notes=payload.notes,
+            district=payload.district,
+            state=payload.state,
+            set_by_user_id=user.id,
+        )
         db.add(row)
     else:
         row.case_type = payload.case_type
         row.notes = payload.notes
+        row.district = payload.district
+        row.state = payload.state
         row.set_by_user_id = user.id
 
     db.add(
@@ -375,7 +392,104 @@ async def set_case_type(
         )
     )
     db.commit()
-    return {"success": True, "case_type": payload.case_type, "notes": payload.notes}
+    return {
+        "success": True, "case_type": payload.case_type, "notes": payload.notes,
+        "district": payload.district, "state": payload.state,
+    }
+
+
+@router.get("/geo-overview")
+async def geo_overview(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("admin")),
+):
+    """District/State/National rollup for monitoring vulnerable victims and
+    high-risk cases, per the spec's dashboard requirement.
+
+    Admin-only. Every case with a CaseProfile is included (classification is
+    what makes a case visible here - an unclassified aura_id has nowhere to
+    roll up to). Risk is computed the same way /cases does, via _assess().
+
+    SCOPE NOTE: this rolls up whatever CaseProfiles exist, but the underlying
+    well-being store (twin_store) is still the single-user prototype
+    documented in SECURITY_POSTURE - so today this reflects at most the one
+    real dataset that exists, not a true multi-district population. The
+    aggregation logic itself is written to scale once that is fixed.
+    """
+    profiles = db.query(CaseProfile).all()
+
+    national = {"total": 0, "green": 0, "amber": 0, "red": 0, "unassessed": 0}
+    by_case_type: Dict[str, int] = {}
+    by_state: Dict[str, Dict] = {}
+    high_risk_cases: List[Dict] = []
+
+    for profile in profiles:
+        assessment = _assess(profile.aura_id)
+        band = assessment["risk"]["band"] if assessment else None
+
+        national["total"] += 1
+        if band == "GREEN":
+            national["green"] += 1
+        elif band == "AMBER":
+            national["amber"] += 1
+        elif band == "RED":
+            national["red"] += 1
+        else:
+            national["unassessed"] += 1
+
+        by_case_type[profile.case_type] = by_case_type.get(profile.case_type, 0) + 1
+
+        state_key = profile.state or "Unspecified state"
+        district_key = profile.district or "Unspecified district"
+        state_bucket = by_state.setdefault(
+            state_key, {"total": 0, "green": 0, "amber": 0, "red": 0, "districts": {}}
+        )
+        state_bucket["total"] += 1
+        district_bucket = state_bucket["districts"].setdefault(
+            district_key, {"total": 0, "green": 0, "amber": 0, "red": 0}
+        )
+        district_bucket["total"] += 1
+        if band in ("GREEN", "AMBER", "RED"):
+            key = band.lower()
+            state_bucket[key] += 1
+            district_bucket[key] += 1
+
+        if band == "RED":
+            high_risk_cases.append(
+                {
+                    "aura_id": profile.aura_id,
+                    "case_type": profile.case_type,
+                    "district": profile.district,
+                    "state": profile.state,
+                    "risk_score": assessment["risk"]["score"],
+                    "priority": assessment["priority"],
+                }
+            )
+
+    high_risk_cases.sort(key=lambda c: c["priority"], reverse=True)
+
+    # Flatten the nested district dicts to lists for a simpler frontend shape.
+    states_out = [
+        {
+            "state": state_name,
+            "total": bucket["total"],
+            "green": bucket["green"],
+            "amber": bucket["amber"],
+            "red": bucket["red"],
+            "districts": [
+                {"district": d_name, **d_bucket} for d_name, d_bucket in bucket["districts"].items()
+            ],
+        }
+        for state_name, bucket in by_state.items()
+    ]
+
+    return {
+        "success": True,
+        "national": national,
+        "by_case_type": by_case_type,
+        "states": states_out,
+        "high_risk_cases": high_risk_cases,
+    }
 
 
 @router.get("/support/pathways/{aura_id}")

@@ -587,6 +587,13 @@ class CaseProfile(Base, TimestampMixin):
     case_type: Mapped[str] = mapped_column(String(40))
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     set_by_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # Administrative jurisdiction, for the spec's district/State/national
+    # aggregate dashboards. Free text, not a foreign key to a jurisdiction
+    # table - there is no such reference dataset in this prototype, and a
+    # free-text field is honest about that rather than implying a validated
+    # official district/state list exists.
+    district: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    state: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
 
 
 class RecoveryRecord(Base, TimestampMixin):

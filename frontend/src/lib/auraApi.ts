@@ -217,18 +217,28 @@ export interface InterventionRecord {
 export const fetchCaseTypes = () =>
   getJson<{ success: boolean; case_types: CaseTypeOption[] }>(`${AURA}/case-types`)
 
-export const fetchCaseType = (auraId: string) =>
-  getJson<{ success: boolean; has_data: boolean; case_type: string | null; notes: string | null }>(
-    `${AURA}/case-type/${auraId}`
-  )
+export interface CaseTypeRecord {
+  success: boolean
+  has_data: boolean
+  case_type: string | null
+  notes: string | null
+  district: string | null
+  state: string | null
+}
 
-export async function setCaseType(auraId: string, caseType: string, notes?: string) {
+export const fetchCaseType = (auraId: string) => getJson<CaseTypeRecord>(`${AURA}/case-type/${auraId}`)
+
+export async function setCaseType(
+  auraId: string,
+  caseType: string,
+  extra?: { notes?: string; district?: string; state?: string }
+) {
   try {
     const res = await fetch(`${AURA}/case-type/${auraId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json", ...authHeader() },
       credentials: "include",
-      body: JSON.stringify({ case_type: caseType, notes }),
+      body: JSON.stringify({ case_type: caseType, ...extra }),
     })
     const data = await res.json().catch(() => ({}))
     if (!res.ok) return { success: false, error: data.detail ?? "Could not save case type." }
@@ -237,6 +247,42 @@ export async function setCaseType(auraId: string, caseType: string, notes?: stri
     return { success: false, error: "Could not reach the server." }
   }
 }
+
+export interface DistrictRollup {
+  district: string
+  total: number
+  green: number
+  amber: number
+  red: number
+}
+
+export interface StateRollup {
+  state: string
+  total: number
+  green: number
+  amber: number
+  red: number
+  districts: DistrictRollup[]
+}
+
+export interface HighRiskCase {
+  aura_id: string
+  case_type: string
+  district: string | null
+  state: string | null
+  risk_score: number
+  priority: number
+}
+
+export interface GeoOverview {
+  success: boolean
+  national: { total: number; green: number; amber: number; red: number; unassessed: number }
+  by_case_type: Record<string, number>
+  states: StateRollup[]
+  high_risk_cases: HighRiskCase[]
+}
+
+export const fetchGeoOverview = () => getJson<GeoOverview>(`${AURA}/geo-overview`)
 
 export const fetchSupportHistory = (auraId: string) =>
   getJson<{ success: boolean; interventions: InterventionRecord[] }>(`${AURA}/support/history/${auraId}`)

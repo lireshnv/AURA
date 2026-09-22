@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { Users, ShieldCheck, Server, ScrollText, UserPlus, Link2, Loader2 } from "lucide-react"
+import { Users, ShieldCheck, Server, ScrollText, UserPlus, Link2, Loader2, Map, AlertOctagon } from "lucide-react"
 import {
   AdminUser,
   Assignment,
@@ -15,7 +15,7 @@ import {
   adminRevokeGuardianLink,
   adminUpdateUser,
 } from "../lib/authApi"
-import { seedDemoData } from "../lib/auraApi"
+import { seedDemoData, fetchGeoOverview, GeoOverview } from "../lib/auraApi"
 import { fetchAuditLog, AuditEntryRow } from "../lib/riskApi"
 import { API_BASE_URL } from "../lib/api"
 
@@ -63,17 +63,21 @@ export default function AdminDashboard() {
   const [seeding, setSeeding] = useState(false)
   const [seedMessage, setSeedMessage] = useState<string | null>(null)
 
+  const [geo, setGeo] = useState<GeoOverview | null>(null)
+
   const reload = useCallback(async () => {
-    const [u, a, g, audit] = await Promise.all([
+    const [u, a, g, audit, geoData] = await Promise.all([
       adminListUsers(),
       adminListAssignments(),
       adminListGuardianLinks(),
       fetchAuditLog(50),
+      fetchGeoOverview(),
     ])
     setUsers(u)
     setAssignments(a)
     setGuardianLinks(g)
     setAuditEntries(audit?.entries ?? [])
+    setGeo(geoData)
     setLoading(false)
   }, [])
 
@@ -161,6 +165,99 @@ export default function AdminDashboard() {
           Accounts, authorization and system health.
         </p>
       </div>
+
+      <Card title="Geographic & Risk Overview" icon={Map}>
+        <p className="text-label-sm text-on-surface-variant mb-4">
+          District/State/National rollup of every classified case (set a case's district/state
+          from a counsellor's Action Required tab). Cases without a POA Act classification don't
+          appear here yet - see User Management below for the underlying accounts.
+        </p>
+
+        {!geo || geo.national.total === 0 ? (
+          <p className="text-label-md text-on-surface-variant/60">
+            No classified cases yet. Case classification happens in the Counsellor Portal.
+          </p>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
+              {[
+                { label: "Total cases", value: geo.national.total, cls: "text-on-surface" },
+                { label: "Green", value: geo.national.green, cls: "text-secondary" },
+                { label: "Amber", value: geo.national.amber, cls: "text-primary" },
+                { label: "Red", value: geo.national.red, cls: "text-error" },
+              ].map((s) => (
+                <div key={s.label} className="rounded-xl bg-surface-container px-3 py-2.5 text-center">
+                  <div className={`text-2xl font-bold tabular-nums ${s.cls}`}>{s.value}</div>
+                  <div className="text-label-sm text-on-surface-variant">{s.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {Object.keys(geo.by_case_type).length > 0 && (
+              <div className="mb-4">
+                <h3 className="text-label-md font-semibold text-on-surface mb-1.5">By case type</h3>
+                <div className="space-y-1">
+                  {Object.entries(geo.by_case_type).map(([type, count]) => (
+                    <div key={type} className="flex justify-between text-label-sm">
+                      <span className="text-on-surface-variant capitalize">{type.replace(/_/g, " ")}</span>
+                      <span className="text-on-surface font-medium">{count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="mb-4">
+              <h3 className="text-label-md font-semibold text-on-surface mb-1.5">By state / district</h3>
+              <div className="space-y-2 max-h-56 overflow-y-auto">
+                {geo.states.map((s) => (
+                  <div key={s.state} className="rounded-lg border border-outline-variant p-2.5">
+                    <div className="flex justify-between text-label-md font-medium text-on-surface">
+                      <span>{s.state}</span>
+                      <span className="text-label-sm text-on-surface-variant">
+                        {s.total} case{s.total === 1 ? "" : "s"} · {s.red} red · {s.amber} amber
+                      </span>
+                    </div>
+                    <div className="mt-1 pl-3 space-y-0.5">
+                      {s.districts.map((d) => (
+                        <div key={d.district} className="flex justify-between text-label-sm text-on-surface-variant">
+                          <span>{d.district}</span>
+                          <span>
+                            {d.total} · {d.red} red · {d.amber} amber
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-label-md font-semibold text-error mb-1.5 flex items-center gap-1.5">
+                <AlertOctagon size={13} />
+                High-risk cases ({geo.high_risk_cases.length})
+              </h3>
+              {geo.high_risk_cases.length === 0 ? (
+                <p className="text-label-sm text-on-surface-variant/60">No RED-band cases right now.</p>
+              ) : (
+                <div className="space-y-1">
+                  {geo.high_risk_cases.map((c) => (
+                    <div key={c.aura_id} className="flex justify-between text-label-sm py-1 border-b border-surface-container-high last:border-0">
+                      <span className="text-on-surface">
+                        {c.aura_id} <span className="text-on-surface-variant capitalize">({c.case_type.replace(/_/g, " ")})</span>
+                      </span>
+                      <span className="text-on-surface-variant">
+                        {[c.district, c.state].filter(Boolean).join(", ") || "Unspecified location"} · score {Math.round(c.risk_score)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-gutter">
         <Card title="User Management" icon={Users}>

@@ -416,6 +416,8 @@ function AnalysisTab({ queue, selected, onSelect }: { queue: CaseQueue | null; s
 function CaseTypeSelector({ auraId, onChanged }: { auraId: string; onChanged: () => void }) {
   const [options, setOptions] = useState<CaseTypeOption[] | null>(null)
   const [value, setValue] = useState<string>("")
+  const [district, setDistrict] = useState("")
+  const [state, setState] = useState("")
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -424,34 +426,64 @@ function CaseTypeSelector({ auraId, onChanged }: { auraId: string; onChanged: ()
 
   useEffect(() => {
     setValue("")
-    fetchCaseType(auraId).then((d) => setValue(d?.case_type ?? ""))
+    setDistrict("")
+    setState("")
+    fetchCaseType(auraId).then((d) => {
+      setValue(d?.case_type ?? "")
+      setDistrict(d?.district ?? "")
+      setState(d?.state ?? "")
+    })
   }, [auraId])
 
-  const save = async (next: string) => {
-    setValue(next)
-    if (!next) return
+  const save = async (next: { type?: string; district?: string; state?: string }) => {
+    const type = next.type ?? value
+    const d = next.district ?? district
+    const s = next.state ?? state
+    if (next.type !== undefined) setValue(next.type)
+    if (next.district !== undefined) setDistrict(next.district)
+    if (next.state !== undefined) setState(next.state)
+    if (!type) return
     setSaving(true)
-    await setCaseType(auraId, next)
+    await setCaseType(auraId, type, { district: d || undefined, state: s || undefined })
     setSaving(false)
     onChanged()
   }
 
   return (
-    <div className="flex items-center gap-2.5 rounded-lg border border-outline-variant bg-surface-container px-3 py-2">
-      <span className="text-label-sm text-on-surface-variant shrink-0">POA Act case type</span>
-      <select
-        value={value}
-        onChange={(e) => save(e.target.value)}
-        disabled={!options || saving}
-        className="flex-1 bg-surface-container-lowest border border-outline-variant rounded-lg px-2 py-1 text-label-md text-on-surface disabled:opacity-50"
-      >
-        <option value="">Not classified yet</option>
-        {(options ?? []).map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
+    <div className="flex flex-col gap-2 rounded-lg border border-outline-variant bg-surface-container px-3 py-2.5">
+      <div className="flex items-center gap-2.5">
+        <span className="text-label-sm text-on-surface-variant shrink-0 w-28">POA Act case type</span>
+        <select
+          value={value}
+          onChange={(e) => save({ type: e.target.value })}
+          disabled={!options || saving}
+          className="flex-1 bg-surface-container-lowest border border-outline-variant rounded-lg px-2 py-1 text-label-md text-on-surface disabled:opacity-50"
+        >
+          <option value="">Not classified yet</option>
+          {(options ?? []).map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="flex items-center gap-2.5">
+        <span className="text-label-sm text-on-surface-variant shrink-0 w-28">District / State</span>
+        <input
+          value={district}
+          onChange={(e) => setDistrict(e.target.value)}
+          onBlur={() => save({})}
+          placeholder="District"
+          className="flex-1 bg-surface-container-lowest border border-outline-variant rounded-lg px-2 py-1 text-label-md text-on-surface"
+        />
+        <input
+          value={state}
+          onChange={(e) => setState(e.target.value)}
+          onBlur={() => save({})}
+          placeholder="State"
+          className="flex-1 bg-surface-container-lowest border border-outline-variant rounded-lg px-2 py-1 text-label-md text-on-surface"
+        />
+      </div>
     </div>
   )
 }
