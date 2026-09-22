@@ -524,10 +524,53 @@ export default function App() {
     setVoiceActive(true)
   }
 
+  /**
+   * Persists whatever was actually observed this session to history - shared
+   * by the explicit "Generate Report" action and by ending a Talk to Aura
+   * conversation, so a session's face/voice analysis is recorded even when
+   * the person just ends the conversation instead of asking for a report.
+   * Derived signals only, same as the manual path.
+   */
+  const persistSessionToHistory = async (durationSeconds: number) => {
+    if (observations.length === 0 && voiceObservations.length === 0) return null
+    try {
+      const result = await submitSessionReport(observations, voiceObservations, agreementSamples)
+      if (result.success && !result.insufficient_data) {
+        await saveHistorySession({
+          duration_seconds: durationSeconds,
+          observed_emotion: result.dominant_emotion ?? auraResult?.combined.dominant ?? null,
+          emotion_confidence: auraResult?.combined.confidence ?? null,
+          distress_score: distressSignal?.score ?? result.distress?.score ?? null,
+          distress_level: distressSignal?.level ?? result.distress?.level ?? null,
+          sentiment_dominant: result.sentiment?.dominant ?? null,
+          agreement: auraResult?.agreement.score ?? null,
+          modalities: auraResult?.modalities_used ?? [],
+          valid_observations: result.session?.valid_observations ?? observations.length,
+          emotion_scores: result.emotion_distribution ?? {},
+          sentiment_scores: result.sentiment
+            ? {
+                positive: result.sentiment.positive,
+                neutral: result.sentiment.neutral,
+                negative: result.sentiment.negative,
+              }
+            : {},
+          factors: distressSignal?.factors ?? [],
+          transcript_excerpt: transcriptLines.join(" ").slice(-1000) || null,
+          notes: result.key_observations ?? [],
+        })
+      }
+      return result
+    } catch {
+      return null
+    }
+  }
+
   const stopConversationAnalysis = () => {
+    const finalElapsed = elapsed
     setActive(false)
     setVoiceActive(false)
     setSessionStart(null)
+    persistSessionToHistory(finalElapsed)
     clearLiveReadings()
   }
 

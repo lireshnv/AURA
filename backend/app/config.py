@@ -1,11 +1,16 @@
 """Central tunables for the AURA emotion analysis pipeline."""
 
 # Minimum fraction of frame area a face bounding box must occupy to be accepted.
-MIN_FACE_AREA_RATIO = 0.10
+# Lowered slightly from 0.10 so a person sitting a normal arm's-length-plus
+# distance from a laptop webcam isn't rejected as "too small" - still well
+# above noise-sized false detections.
+MIN_FACE_AREA_RATIO = 0.08
 
 # Padding added around a detected face crop before resizing, as a fraction of
-# the face bounding box width/height.
-FACE_CROP_PADDING = 0.18
+# the face bounding box width/height. Raised from 0.18: MediaPipe's box hugs
+# the face tightly and often clips the forehead/chin, which throws away real
+# eyebrow and jaw evidence the expression fusion (REGION_WEIGHTS) depends on.
+FACE_CROP_PADDING = 0.25
 
 # Target size (square) the cropped face is resized to before DeepFace.
 FACE_RESIZE_DIM = 224
@@ -23,7 +28,11 @@ FACE_DETECTION_CONFIDENCE = 0.5
 SMOOTHING_WINDOW = 5
 
 # Exponential moving average alpha (weight given to the newest sample).
-EMA_ALPHA = 0.4
+# Raised from 0.4 so a genuine expression change shows up in 1-2 frames
+# instead of being dragged down by several frames of the previous state -
+# heavy smoothing was reading as "not detecting" a change that had already
+# happened on-camera.
+EMA_ALPHA = 0.55
 
 # Below this confidence (percentage points), an observation is treated as low-quality.
 CONFIDENCE_LOW = 35.0
@@ -68,7 +77,10 @@ FUSION_WEIGHTS = {
 }
 
 # EMA alpha for smoothing landmark-evidence support over recent frames.
-SUPPORT_EMA_ALPHA = 0.35
+# Raised alongside EMA_ALPHA for the same reason - the geometric evidence
+# signal should catch up to a real, held expression within a couple of
+# frames rather than several.
+SUPPORT_EMA_ALPHA = 0.45
 
 # Within the geometry signal, how much each face region contributes. The mouth
 # dominates because it carries the most expression information and is the most

@@ -18,6 +18,15 @@ _detector = _mp_face_detection.FaceDetection(
     model_selection=0,  # short-range model, optimized for close-up webcam faces
     min_detection_confidence=config.FACE_DETECTION_CONFIDENCE,
 )
+# Second-pass fallback at a lower bar, tried ONLY when the primary detector
+# finds nothing at all. This raises recall in imperfect lighting/angle
+# frames without lowering the bar for the common case: the blur/brightness/
+# face-size quality gates below are what keep a marginal detection from
+# turning into a bad reading, not the detection confidence itself.
+_detector_lenient = _mp_face_detection.FaceDetection(
+    model_selection=0,
+    min_detection_confidence=max(0.25, config.FACE_DETECTION_CONFIDENCE - 0.25),
+)
 
 
 @dataclass
@@ -42,12 +51,20 @@ class PreprocessResult:
 def _detect_faces(image_bgr: np.ndarray):
     rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
     result = _detector.process(rgb)
-    if not result.detections:
+    detections = result.detections
+    if not detections:
+        # Fall back to the lenient detector rather than reporting no_face
+        # outright - a real face just missed the primary bar (poor lighting,
+        # a slight turn), and the quality gates further down still have the
+        # final say on whether this frame is usable.
+        result = _detector_lenient.process(rgb)
+        detections = result.detections
+    if not detections:
         return []
 
     h, w = image_bgr.shape[:2]
     boxes = []
-    for det in result.detections:
+    for det in detections:
         bbox = det.location_data.relative_bounding_box
         x = int(bbox.xmin * w)
         y = int(bbox.ymin * h)
