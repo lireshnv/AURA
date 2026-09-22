@@ -803,6 +803,125 @@ export default function App() {
     </div>
   )
 
+  /** Distress Signal circle + Synchronized Signals (Face/Voice/Text) +
+   * camera/transcript side panel. Shared as-is between the counsellor's
+   * dashboard and the victim's view - one definition, not two copies. */
+  const topRowSection = (
+    <section className="grid grid-cols-1 lg:grid-cols-12 gap-gutter">
+      {/* Central Visualization */}
+      <div className="lg:col-span-8 bg-surface-container-lowest rounded-[24px] shadow-ambient-lg p-stack-md flex flex-col md:flex-row items-center gap-stack-md relative overflow-hidden">
+        <div className="w-full md:w-1/2 flex justify-center items-center relative">
+          <div className="text-center bg-surface-container-low rounded-full p-8 shadow-ambient-md border border-outline-variant aspect-square flex flex-col items-center justify-center w-56 h-56">
+            <p className="text-label-sm text-on-surface-variant uppercase tracking-wider mb-1">Distress Signal</p>
+            <p className="text-display-lg text-primary leading-none mb-2">
+              {running ? Math.round(heroDistressScore) : "—"}
+              <span className="text-headline-md text-outline">/100</span>
+            </p>
+            <div className="inline-flex items-center gap-2 bg-secondary-container text-on-secondary-container px-3 py-1 rounded-full text-label-sm">
+              <span className="material-symbols-outlined text-[16px]">check_circle</span>
+              Confidence {heroConfidence !== null ? `${Math.round(heroConfidence)}%` : "—"}
+            </div>
+          </div>
+          <p className="text-label-sm text-outline text-center mt-3 max-w-[220px] mx-auto">
+            Decision-support signal — not a clinical diagnosis.
+          </p>
+        </div>
+
+        <div className="w-full md:w-1/2 flex flex-col gap-stack-sm">
+          <h2 className="text-headline-md text-on-surface mb-2">Synchronized Signals</h2>
+
+          <div className="bg-surface-container-low rounded-xl p-4 flex items-center justify-between border border-transparent hover:border-primary/20 transition-colors">
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 rounded-full bg-primary-container/10 flex items-center justify-center text-primary">
+                <span className="material-symbols-outlined">face</span>
+              </div>
+              <div>
+                <p className="text-label-sm text-on-surface-variant uppercase">Face · Emotion</p>
+                <p className="text-body-md font-medium text-on-surface capitalize">
+                  {active && latest?.emotion?.dominant ? latest.emotion.dominant : "Not detected"}
+                </p>
+              </div>
+            </div>
+            <div className="text-headline-md text-primary">
+              {active && latest?.emotion?.confidence != null ? `${Math.round(latest.emotion.confidence)}%` : "—"}
+            </div>
+          </div>
+
+          <div className="bg-surface-container-low rounded-xl p-4 flex items-center justify-between border border-transparent hover:border-secondary/20 transition-colors">
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 rounded-full bg-secondary-container/10 flex items-center justify-center text-secondary">
+                <span className="material-symbols-outlined">graphic_eq</span>
+              </div>
+              <div>
+                <p className="text-label-sm text-on-surface-variant uppercase">Voice · Signal</p>
+                <p className="text-body-md font-medium text-on-surface capitalize">
+                  {voiceInfoNow?.observed ?? "Not detected"}
+                </p>
+              </div>
+            </div>
+            <div className="text-headline-md text-secondary">
+              {voiceInfoNow?.confidence != null ? `${Math.round(voiceInfoNow.confidence)}%` : "—"}
+            </div>
+          </div>
+
+          <div className="bg-surface-container-low rounded-xl p-4 flex items-center justify-between border border-transparent hover:border-tertiary/20 transition-colors">
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 rounded-full bg-tertiary-container/10 flex items-center justify-center text-tertiary">
+                <span className="material-symbols-outlined">chat</span>
+              </div>
+              <div>
+                <p className="text-label-sm text-on-surface-variant uppercase">Text · Sentiment</p>
+                <p className="text-body-md font-medium text-on-surface capitalize">
+                  {latestTextEmotion?.available
+                    ? latestTextEmotion.sentiment?.dominant ?? "Not detected"
+                    : "Not detected"}
+                </p>
+              </div>
+            </div>
+            <div className="text-headline-md text-tertiary">
+              {latestTextEmotion?.available && latestTextEmotion.confidence != null
+                ? `${Math.round(latestTextEmotion.confidence)}%`
+                : "—"}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Side Panel: Camera preview + transcript */}
+      <div className="lg:col-span-4 flex flex-col gap-gutter">
+        <div className="bg-surface-container-lowest rounded-[24px] shadow-ambient-md overflow-hidden relative aspect-video min-h-[280px]">
+          <LiveEmotionCamera
+            active={active}
+            mode={mode}
+            sessionId={sessionIdRef.current}
+            onResult={handleResult}
+            onStateChange={setCameraState}
+            onFatalError={(msg) => {
+              setFatalError(msg)
+              setActive(false)
+            }}
+            onMetrics={handleMetrics}
+          />
+          {active && (
+            <div className="absolute inset-0 z-0 pointer-events-none border-2 border-primary/30 m-6 rounded-lg">
+              <div className="w-4 h-4 border-t-2 border-l-2 border-primary absolute top-0 left-0 -mt-1 -ml-1" />
+              <div className="w-4 h-4 border-t-2 border-r-2 border-primary absolute top-0 right-0 -mt-1 -mr-1" />
+              <div className="w-4 h-4 border-b-2 border-l-2 border-primary absolute bottom-0 left-0 -mb-1 -ml-1" />
+              <div className="w-4 h-4 border-b-2 border-r-2 border-primary absolute bottom-0 right-0 -mb-1 -mr-1" />
+            </div>
+          )}
+        </div>
+
+        <LiveTranscript
+          lines={transcriptLines}
+          livePartial={livePartialTranscript}
+          textEmotion={latestTextEmotion}
+          groqInsight={groqInsight}
+        />
+      </div>
+    </section>
+  )
+
   const analysisView = (
     <div className="flex flex-col gap-stack-lg">
         {role !== "victim" && (
@@ -847,44 +966,7 @@ export default function App() {
 
             {hiddenVoiceAnalysis}
 
-            {/* Camera preview is a small, optional confirmation that the
-                explicit camera toggle actually did something - never the
-                large, primary element it used to be. */}
-            {active && (
-              <div className="w-40 aspect-video rounded-2xl overflow-hidden shadow-ambient-md self-start">
-                <LiveEmotionCamera
-                  active={active}
-                  mode={mode}
-                  sessionId={sessionIdRef.current}
-                  onResult={handleResult}
-                  onStateChange={setCameraState}
-                  onFatalError={(msg) => {
-                    setFatalError(msg)
-                    setActive(false)
-                  }}
-                  onMetrics={handleMetrics}
-                />
-              </div>
-            )}
-            {!active && (
-              // Mounted off-screen (not display:none) so a later camera
-              // toggle can still acquire the device without a remount delay
-              // - camera analysis genuinely never runs until active is true.
-              <div className="hidden">
-                <LiveEmotionCamera
-                  active={active}
-                  mode={mode}
-                  sessionId={sessionIdRef.current}
-                  onResult={handleResult}
-                  onStateChange={setCameraState}
-                  onFatalError={(msg) => {
-                    setFatalError(msg)
-                    setActive(false)
-                  }}
-                  onMetrics={handleMetrics}
-                />
-              </div>
-            )}
+            {topRowSection}
 
             <MyPatterns onStartCheckin={() => setPage("checkin")} />
 
@@ -960,120 +1042,7 @@ export default function App() {
               onGenerateReport={handleGenerateReport}
             />
 
-            {/* Top Row: Visualization & Signals */}
-            <section className="grid grid-cols-1 lg:grid-cols-12 gap-gutter">
-              {/* Central Visualization */}
-              <div className="lg:col-span-8 bg-surface-container-lowest rounded-[24px] shadow-ambient-lg p-stack-md flex flex-col md:flex-row items-center gap-stack-md relative overflow-hidden">
-                <div className="w-full md:w-1/2 flex justify-center items-center relative">
-                  <div className="text-center bg-surface-container-low rounded-full p-8 shadow-ambient-md border border-outline-variant aspect-square flex flex-col items-center justify-center w-56 h-56">
-                    <p className="text-label-sm text-on-surface-variant uppercase tracking-wider mb-1">Distress Signal</p>
-                    <p className="text-display-lg text-primary leading-none mb-2">
-                      {running ? Math.round(heroDistressScore) : "—"}
-                      <span className="text-headline-md text-outline">/100</span>
-                    </p>
-                    <div className="inline-flex items-center gap-2 bg-secondary-container text-on-secondary-container px-3 py-1 rounded-full text-label-sm">
-                      <span className="material-symbols-outlined text-[16px]">check_circle</span>
-                      Confidence {heroConfidence !== null ? `${Math.round(heroConfidence)}%` : "—"}
-                    </div>
-                  </div>
-                  <p className="text-label-sm text-outline text-center mt-3 max-w-[220px] mx-auto">
-                    Decision-support signal — not a clinical diagnosis.
-                  </p>
-                </div>
-
-                <div className="w-full md:w-1/2 flex flex-col gap-stack-sm">
-                  <h2 className="text-headline-md text-on-surface mb-2">Synchronized Signals</h2>
-
-                  <div className="bg-surface-container-low rounded-xl p-4 flex items-center justify-between border border-transparent hover:border-primary/20 transition-colors">
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-full bg-primary-container/10 flex items-center justify-center text-primary">
-                        <span className="material-symbols-outlined">face</span>
-                      </div>
-                      <div>
-                        <p className="text-label-sm text-on-surface-variant uppercase">Face · Emotion</p>
-                        <p className="text-body-md font-medium text-on-surface capitalize">
-                          {active && latest?.emotion?.dominant ? latest.emotion.dominant : "Not detected"}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="text-headline-md text-primary">
-                      {active && latest?.emotion?.confidence != null ? `${Math.round(latest.emotion.confidence)}%` : "—"}
-                    </div>
-                  </div>
-
-                  <div className="bg-surface-container-low rounded-xl p-4 flex items-center justify-between border border-transparent hover:border-secondary/20 transition-colors">
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-full bg-secondary-container/10 flex items-center justify-center text-secondary">
-                        <span className="material-symbols-outlined">graphic_eq</span>
-                      </div>
-                      <div>
-                        <p className="text-label-sm text-on-surface-variant uppercase">Voice · Signal</p>
-                        <p className="text-body-md font-medium text-on-surface capitalize">
-                          {voiceInfoNow?.observed ?? "Not detected"}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="text-headline-md text-secondary">
-                      {voiceInfoNow?.confidence != null ? `${Math.round(voiceInfoNow.confidence)}%` : "—"}
-                    </div>
-                  </div>
-
-                  <div className="bg-surface-container-low rounded-xl p-4 flex items-center justify-between border border-transparent hover:border-tertiary/20 transition-colors">
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-full bg-tertiary-container/10 flex items-center justify-center text-tertiary">
-                        <span className="material-symbols-outlined">chat</span>
-                      </div>
-                      <div>
-                        <p className="text-label-sm text-on-surface-variant uppercase">Text · Sentiment</p>
-                        <p className="text-body-md font-medium text-on-surface capitalize">
-                          {latestTextEmotion?.available
-                            ? latestTextEmotion.sentiment?.dominant ?? "Not detected"
-                            : "Not detected"}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="text-headline-md text-tertiary">
-                      {latestTextEmotion?.available && latestTextEmotion.confidence != null
-                        ? `${Math.round(latestTextEmotion.confidence)}%`
-                        : "—"}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Side Panel: Camera preview + transcript */}
-              <div className="lg:col-span-4 flex flex-col gap-gutter">
-                <div className="bg-surface-container-lowest rounded-[24px] shadow-ambient-md overflow-hidden relative aspect-video min-h-[280px]">
-                  <LiveEmotionCamera
-                    active={active}
-                    mode={mode}
-                    sessionId={sessionIdRef.current}
-                    onResult={handleResult}
-                    onStateChange={setCameraState}
-                    onFatalError={(msg) => {
-                      setFatalError(msg)
-                      setActive(false)
-                    }}
-                    onMetrics={handleMetrics}
-                  />
-                  {active && (
-                    <div className="absolute inset-0 z-0 pointer-events-none border-2 border-primary/30 m-6 rounded-lg">
-                      <div className="w-4 h-4 border-t-2 border-l-2 border-primary absolute top-0 left-0 -mt-1 -ml-1" />
-                      <div className="w-4 h-4 border-t-2 border-r-2 border-primary absolute top-0 right-0 -mt-1 -mr-1" />
-                      <div className="w-4 h-4 border-b-2 border-l-2 border-primary absolute bottom-0 left-0 -mb-1 -ml-1" />
-                      <div className="w-4 h-4 border-b-2 border-r-2 border-primary absolute bottom-0 right-0 -mb-1 -mr-1" />
-                    </div>
-                  )}
-                </div>
-
-                <LiveTranscript
-                  lines={transcriptLines}
-                  livePartial={livePartialTranscript}
-                  textEmotion={latestTextEmotion}
-                  groqInsight={groqInsight}
-                />
-              </div>
-            </section>
+            {topRowSection}
 
             {hiddenVoiceAnalysis}
 
