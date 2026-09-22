@@ -105,6 +105,16 @@ export class RollingAudioCapture {
     return this.totalWritten >= this.ringLength
   }
 
+  /** Defensive re-resume: a browser tab losing focus/visibility can suspend
+   * the context mid-conversation (silently - no error, no callback), so
+   * callers on a recurring timer (waveform draw, turn-detection poll) call
+   * this opportunistically rather than only once at start(). */
+  resumeIfSuspended(): void {
+    if (this.context && this.context.state === "suspended") {
+      this.context.resume().catch(() => {})
+    }
+  }
+
   /**
    * Acquires the microphone and starts capture. The browser's own echo
    * cancellation and noise suppression are enabled: the analysis models are
@@ -129,6 +139,15 @@ export class RollingAudioCapture {
     // and handle in encodeWindow().
     const context = new AudioContext({ sampleRate: TARGET_SAMPLE_RATE })
     this.sampleRate = context.sampleRate
+
+    // A context created after an await gap from the triggering click (the
+    // permission prompt above is exactly that gap) can start - and stay -
+    // "suspended" in some Chromium builds, silently processing no audio at
+    // all: the waveform never moves and nothing is ever transcribed, with no
+    // error anywhere. Resuming explicitly is a no-op when already running.
+    if (context.state === "suspended") {
+      await context.resume().catch(() => {})
+    }
 
     const source = context.createMediaStreamSource(stream)
 

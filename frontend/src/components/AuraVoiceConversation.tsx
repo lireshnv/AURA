@@ -89,6 +89,7 @@ export default function AuraVoiceConversation({
     pollRef.current = window.setInterval(async () => {
       const capture = captureRef.current
       if (!capture || pausedRef.current || busyRef.current || speaking) return
+      capture.resumeIfSuspended()
       const utterance = capture.takeUtterance()
       if (!utterance) return
 
