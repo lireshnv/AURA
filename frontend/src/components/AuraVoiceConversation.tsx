@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { Mic, Square, Pause, Play, ChevronDown, ChevronUp, Video, VideoOff } from "lucide-react"
+import { Mic, Square, Pause, Play, Video, VideoOff, Lock } from "lucide-react"
 import { useAuraConversation } from "../lib/useAuraConversation"
 import { transcribeVoice } from "../lib/chatApi"
 import { RollingAudioCapture } from "../lib/audioCapture"
@@ -10,9 +10,18 @@ import { AvatarAnimationState } from "./AvatarModule/types"
 import { SafetyPanel, renderMarkdown } from "./AICompanion"
 
 type Phase = "idle" | "listening" | "thinking" | "speaking" | "paused" | "ended"
-type FeelingAfter = "better" | "slightly_better" | "same" | "worse"
+type FeelingAfter = "better" | "slightly_better" | "same" | "worse" | "not_sure"
 
 const POLL_MS = 250
+const TRANSCRIPT_PREVIEW = 4
+
+const FOLLOWUP_MESSAGE: Record<FeelingAfter, string> = {
+  better: "I'm glad things feel a little lighter.",
+  slightly_better: "That's good to hear, even a little.",
+  same: "That's okay. We can take another approach.",
+  worse: "Let's slow down. Would you like to talk to someone you trust or get professional support?",
+  not_sure: "That's okay. We don't have to decide right now.",
+}
 
 interface Props {
   cameraActive: boolean
@@ -25,7 +34,9 @@ interface Props {
   onStopAnalysis: () => void
   onOpenSupport: () => void
   onOpenInsights: () => void
-  onOpenSafetyPlan: () => void
+  /** Plain-language observation, e.g. "Increased vocal tension was detected
+   * during part of the conversation." Null when nothing to report yet. */
+  observationSummary: string | null
 }
 
 /**
@@ -43,28 +54,21 @@ export default function AuraVoiceConversation({
   onStopAnalysis,
   onOpenSupport,
   onOpenInsights,
-  onOpenSafetyPlan,
+  observationSummary,
 }: Props) {
   const [language, setLanguage] = useState<string>(getStoredLanguage)
   const [phase, setPhase] = useState<Phase>("idle")
   const [transcribing, setTranscribing] = useState(false)
-  const [showTranscript, setShowTranscript] = useState(false)
+  const [showFullTranscript, setShowFullTranscript] = useState(false)
   const [feedback, setFeedback] = useState<FeelingAfter | null>(null)
 
-  const {
-    messages,
-    safetyBlocks,
-    sending,
-    speaking,
-    status,
-    send,
-    reset,
-  } = useAuraConversation(language)
+  const { messages, safetyBlocks, sending, speaking, status, send, reset } = useAuraConversation(language)
 
   const captureRef = useRef<RollingAudioCapture | null>(null)
   const pollRef = useRef<number | null>(null)
   const rafRef = useRef<number | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const transcriptEndRef = useRef<HTMLDivElement>(null)
   const pausedRef = useRef(false)
   const busyRef = useRef(false)
 
@@ -130,6 +134,10 @@ export default function AuraVoiceConversation({
     }
   }, [phase, speaking])
 
+  useEffect(() => {
+    transcriptEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+  }, [messages.length])
+
   const start = async () => {
     try {
       const capture = new RollingAudioCapture(2, 700, 20)
@@ -170,6 +178,7 @@ export default function AuraVoiceConversation({
 
   const submitFeedback = async (result: FeelingAfter) => {
     setFeedback(result)
+    if (result === "not_sure") return
     await recordOutcome({
       intervention_category: "connect",
       intervention_type: "aura_companion_voice",
@@ -217,22 +226,17 @@ export default function AuraVoiceConversation({
   const lastAssistantIdx = [...messages].map((m, i) => ({ m, i })).reverse().find((x) => x.m.role === "assistant")?.i
   const activeSafety = lastAssistantIdx !== undefined ? safetyBlocks[lastAssistantIdx] : undefined
   const unavailable = status && !status.ready
+  const visibleMessages = showFullTranscript ? messages : messages.slice(-TRANSCRIPT_PREVIEW)
 
   return (
     <section className="bg-surface-container-lowest rounded-[24px] shadow-ambient-lg p-stack-md">
-      <div className="flex items-start justify-between gap-4 mb-4">
-        <div>
-          <h2 className="text-headline-lg text-on-surface">Speak with Aura</h2>
-          <p className="text-body-md text-on-surface-variant mt-0.5">
-            You don't have to know what to say. Just start talking.
-          </p>
-        </div>
-        {phase === "idle" && (
+      {phase === "idle" && (
+        <div className="flex justify-end mb-2">
           <select
             value={language}
             onChange={(e) => changeLanguage(e.target.value)}
             title="Conversation language"
-            className="px-2 py-1.5 rounded-lg border border-outline-variant text-xs text-on-surface-variant bg-surface-container-lowest hover:bg-surface-container-low shrink-0"
+            className="px-2 py-1 rounded-lg border border-outline-variant text-xs text-on-surface-variant bg-surface-container-lowest hover:bg-surface-container-low"
           >
             {LANGUAGE_OPTIONS.map((opt) => (
               <option key={opt.code} value={opt.code}>
@@ -240,21 +244,27 @@ export default function AuraVoiceConversation({
               </option>
             ))}
           </select>
-        )}
-      </div>
+        </div>
+      )}
 
       {unavailable && (
-        <p className="text-label-sm text-on-surface-variant mb-4">
+        <p className="text-label-sm text-on-surface-variant mb-4 text-center">
           Voice conversation is temporarily unavailable: {status?.note}
         </p>
       )}
 
       {phase !== "ended" && (
         <div className="flex flex-col items-center text-center py-6">
+          {phase === "idle" && <h1 className="text-headline-lg text-on-surface mb-1">Speak with Aura</h1>}
           <div className="w-32 h-32 rounded-full overflow-hidden mb-4 bg-primary-container/10">
-            <AvatarModule drivenAnimation={avatarAnimation} />
+            <AvatarModule drivenAnimation={avatarAnimation} compact />
           </div>
-          <p className="text-body-lg text-on-surface font-medium mb-4">{statusText[derivedPhase]}</p>
+          <p className="text-body-lg text-on-surface font-medium mb-1">{statusText[derivedPhase]}</p>
+          {phase === "idle" && (
+            <p className="text-body-md text-on-surface-variant mb-4 max-w-sm">
+              You don't have to know what to say. Just start talking.
+            </p>
+          )}
 
           {phase !== "idle" && (
             <div className="w-full max-w-sm rounded-xl bg-surface-container-low border border-outline-variant p-2 mb-4">
@@ -284,7 +294,7 @@ export default function AuraVoiceConversation({
                   onClick={end}
                   className="flex items-center gap-2 rounded-full bg-error text-on-error px-5 py-3 text-label-md font-semibold"
                 >
-                  <Square size={16} /> End Conversation
+                  <Square size={16} /> End
                 </button>
               </>
             )}
@@ -306,16 +316,28 @@ export default function AuraVoiceConversation({
             )}
           </div>
 
-          {messages.length === 0 && phase === "idle" && (
-            <p className="text-label-sm text-on-surface-variant mt-4 max-w-sm">
-              Voice conversation works without camera analysis. Camera-based analysis is optional.
-            </p>
+          {phase === "idle" && (
+            <div className="mt-4 flex flex-col items-center gap-1">
+              <p className="flex items-center gap-1.5 text-label-sm text-on-surface-variant">
+                <Lock size={12} /> Voice • Camera optional • Private
+              </p>
+              <details className="text-label-sm text-on-surface-variant">
+                <summary className="cursor-pointer text-primary hover:underline list-none text-center">
+                  Privacy details
+                </summary>
+                <p className="mt-2 max-w-sm text-left">
+                  Camera and microphone are only active while you're talking with Aura. Raw audio and
+                  video are never stored - only structured scores and timestamps are, and only with
+                  your consent.
+                </p>
+              </details>
+            </div>
           )}
 
           {/* Quick choices after Aura's very first reply */}
           {phase === "listening" && messages.length === 2 && (
             <div className="flex flex-wrap justify-center gap-2 mt-5">
-              {["Talk about it", "Calm down", "I'm not sure"].map((choice) => (
+              {["Talk more", "Calm down", "I'm not sure"].map((choice) => (
                 <button
                   key={choice}
                   onClick={() => send(choice)}
@@ -331,55 +353,63 @@ export default function AuraVoiceConversation({
 
       {activeSafety && phase !== "ended" && <SafetyPanel safety={activeSafety} />}
 
-      {phase !== "idle" && phase !== "ended" && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-surface-container-low border border-outline-variant px-4 py-3 mb-4">
-          <div className="flex items-center gap-5 text-label-sm text-on-surface-variant">
-            <span>
-              Voice <span className="text-secondary font-medium">{phase === "paused" ? "Paused" : "Listening"}</span>
-            </span>
-            <span>
-              Speech <span className="text-secondary font-medium">{transcribing || sending ? "Processing" : "Ready"}</span>
-            </span>
-            <span className="flex items-center gap-1">
-              Face{" "}
-              <span className={cameraActive ? "text-secondary font-medium" : "text-on-surface-variant"}>
-                {cameraActive ? "On" : "Camera off"}
-              </span>
-            </span>
+      {phase !== "idle" && phase !== "ended" && messages.length > 0 && (
+        <div className="rounded-xl bg-surface-container-low border border-outline-variant p-4 mb-4 max-h-72 overflow-y-auto">
+          {!showFullTranscript && messages.length > TRANSCRIPT_PREVIEW && (
+            <button
+              onClick={() => setShowFullTranscript(true)}
+              className="text-label-sm text-primary hover:underline mb-3"
+            >
+              View full transcript
+            </button>
+          )}
+          <div className="space-y-3">
+            {visibleMessages.map((m, i) => (
+              <div key={i}>
+                <p className="text-label-sm font-semibold text-on-surface-variant mb-0.5">
+                  {m.role === "user" ? "You" : "Aura"}
+                </p>
+                <p
+                  className="text-body-md text-on-surface"
+                  dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }}
+                />
+              </div>
+            ))}
+            <div ref={transcriptEndRef} />
           </div>
-          <button
-            onClick={() => onToggleCamera(!cameraActive)}
-            className="flex items-center gap-1.5 text-label-sm text-on-surface-variant hover:text-primary"
-          >
-            {cameraActive ? <VideoOff size={14} /> : <Video size={14} />}
-            {cameraActive ? "Turn camera off" : "Add camera (optional)"}
-          </button>
         </div>
       )}
 
-      {phase !== "idle" && phase !== "ended" && messages.length > 0 && (
-        <div className="mb-2">
-          <button
-            onClick={() => setShowTranscript((v) => !v)}
-            className="flex items-center gap-1.5 text-label-md text-on-surface-variant hover:text-primary"
-          >
-            {showTranscript ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-            {showTranscript ? "Hide transcript" : "Live Transcript"}
-          </button>
-          {showTranscript && (
-            <div className="mt-2 max-h-64 overflow-y-auto rounded-xl border border-outline-variant bg-surface-container-low p-4 space-y-3">
-              {messages.map((m, i) => (
-                <div key={i}>
-                  <p className="text-label-sm font-semibold text-on-surface-variant mb-0.5">
-                    {m.role === "user" ? "You" : "Aura"}
-                  </p>
-                  <p
-                    className="text-body-md text-on-surface"
-                    dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }}
-                  />
-                </div>
-              ))}
+      {phase !== "idle" && phase !== "ended" && (
+        <div className="rounded-xl bg-surface-container-low border border-outline-variant px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-5 text-label-sm text-on-surface-variant">
+              <span>
+                Voice <span className="text-secondary font-medium">{phase === "paused" ? "Paused" : "Listening"}</span>
+              </span>
+              <span>
+                Speech <span className="text-secondary font-medium">{transcribing || sending ? "Processing" : "Ready"}</span>
+              </span>
+              <span className="flex items-center gap-1">
+                Face{" "}
+                <span className={cameraActive ? "text-secondary font-medium" : "text-on-surface-variant"}>
+                  {cameraActive ? "On" : "Camera off"}
+                </span>
+              </span>
             </div>
+            <button
+              onClick={() => onToggleCamera(!cameraActive)}
+              className="flex items-center gap-1.5 text-label-sm text-on-surface-variant hover:text-primary"
+            >
+              {cameraActive ? <VideoOff size={14} /> : <Video size={14} />}
+              {cameraActive ? "Turn camera off" : "Enable camera analysis"}
+            </button>
+          </div>
+          {observationSummary && (
+            <p className="text-label-sm text-on-surface-variant mt-3 pt-3 border-t border-outline-variant">
+              {observationSummary}{" "}
+              <span className="text-outline">Observable signal • Not a clinical diagnosis.</span>
+            </p>
           )}
         </div>
       )}
@@ -388,6 +418,13 @@ export default function AuraVoiceConversation({
         <div className="text-center py-4">
           <h3 className="text-headline-md text-on-surface mb-1">Conversation Complete</h3>
           <p className="text-body-md text-on-surface-variant mb-6">Thank you for talking with me.</p>
+
+          {observationSummary && (
+            <p className="text-label-sm text-on-surface-variant mb-6 max-w-sm mx-auto">
+              {observationSummary}{" "}
+              <span className="text-outline">Observable signal • Not a clinical diagnosis.</span>
+            </p>
+          )}
 
           {feedback === null ? (
             <>
@@ -399,6 +436,7 @@ export default function AuraVoiceConversation({
                     ["slightly_better", "A little better"],
                     ["same", "Same"],
                     ["worse", "Worse"],
+                    ["not_sure", "Not sure"],
                   ] as [FeelingAfter, string][]
                 ).map(([value, label]) => (
                   <button
@@ -413,6 +451,7 @@ export default function AuraVoiceConversation({
             </>
           ) : (
             <div className="flex flex-col items-center gap-3">
+              <p className="text-body-md text-on-surface mb-2 max-w-sm">{FOLLOWUP_MESSAGE[feedback]}</p>
               <p className="text-label-md font-semibold text-on-surface mb-1">What would you like to do next?</p>
               <div className="flex flex-wrap justify-center gap-2">
                 <button
@@ -431,19 +470,13 @@ export default function AuraVoiceConversation({
                   onClick={onOpenInsights}
                   className="rounded-xl border border-outline-variant px-4 py-2.5 text-label-md text-on-surface hover:bg-surface-container-high"
                 >
-                  View my patterns
-                </button>
-                <button
-                  onClick={onOpenSafetyPlan}
-                  className="rounded-xl border border-outline-variant px-4 py-2.5 text-label-md text-on-surface hover:bg-surface-container-high"
-                >
-                  Create a plan
+                  View insights
                 </button>
                 <button
                   onClick={onOpenSupport}
                   className="rounded-xl border border-outline-variant px-4 py-2.5 text-label-md text-on-surface hover:bg-surface-container-high"
                 >
-                  Get human support
+                  Get support
                 </button>
               </div>
             </div>

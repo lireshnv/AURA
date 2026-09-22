@@ -20,6 +20,7 @@ import HistoryPage from "./components/HistoryPage"
 import ProfilePage from "./components/ProfilePage"
 import AICompanion from "./components/AICompanion"
 import AuraVoiceConversation from "./components/AuraVoiceConversation"
+import ConversationInsights from "./components/ConversationInsights"
 import IvrsCallPortal from "./components/IvrsCall/IvrsCallPortal"
 import AdminDashboard from "./components/AdminDashboard"
 import CounsellorCallPanel from "./components/CounsellorCallPanel"
@@ -764,20 +765,60 @@ export default function App() {
   const heroDistressScore = distressSignal?.score ?? liveDistress.score
   const heroConfidence = distressSignal?.confidence ?? fusion?.emotion.confidence ?? null
 
+  /** Plain-language stand-in for the raw distress score, for the victim's
+   * own calm view - never a number, never a diagnostic claim. */
+  const observationSummary = useMemo(() => {
+    if (!running) return null
+    const parts: string[] = []
+    if (voiceInfoNow?.observed && voiceInfoNow.observed.toLowerCase() !== "steady vocal activation") {
+      parts.push(`voice showed ${voiceInfoNow.observed.toLowerCase()}`)
+    }
+    if (latestTextEmotion?.available && latestTextEmotion.sentiment?.dominant) {
+      const s = latestTextEmotion.sentiment.dominant.toLowerCase()
+      if (s !== "neutral") parts.push(`speech leaned ${s}`)
+    }
+    if (active && latest?.emotion?.dominant && latest.emotion.dominant !== "neutral") {
+      parts.push(`facial expression read as ${latest.emotion.dominant.toLowerCase()}`)
+    }
+    if (parts.length === 0) return "Aura hasn't noticed a clear pattern yet in this conversation."
+    return `Aura noticed: ${parts.join("; ")}.`
+  }, [running, voiceInfoNow, latestTextEmotion, active, latest])
+
+  // The real microphone-capture/analysis loop, shared by both role views
+  // below - always mounted so voice data keeps flowing regardless of which
+  // layout is on screen, never rendered with its own verbose readout.
+  const hiddenVoiceAnalysis = (
+    <div className="hidden">
+      <VoiceAnalysis
+        active={voiceActive}
+        capabilities={voiceCaps}
+        language={language}
+        sessionId={sessionIdRef.current}
+        onFrame={handleVoiceFrame}
+        onFatalError={(msg) => {
+          setFatalError(msg)
+          setVoiceActive(false)
+        }}
+      />
+    </div>
+  )
+
   const analysisView = (
     <div className="flex flex-col gap-stack-lg">
-        <header className="flex flex-col gap-1">
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <h1 className="text-headline-lg text-on-surface">Emotion Analysis</h1>
-            <div className="flex items-center gap-2 text-label-sm font-medium">
-              <span className={`w-2 h-2 rounded-full ${statusDot.color}`} />
-              <span className="text-on-surface-variant">{statusDot.label}</span>
+        {role !== "victim" && (
+          <header className="flex flex-col gap-1">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <h1 className="text-headline-lg text-on-surface">Emotion Analysis</h1>
+              <div className="flex items-center gap-2 text-label-sm font-medium">
+                <span className={`w-2 h-2 rounded-full ${statusDot.color}`} />
+                <span className="text-on-surface-variant">{statusDot.label}</span>
+              </div>
             </div>
-          </div>
-          <p className="text-body-lg text-on-surface-variant">
-            Real-time multisensory emotional state monitoring.
-          </p>
-        </header>
+            <p className="text-body-lg text-on-surface-variant">
+              Real-time multisensory emotional state monitoring.
+            </p>
+          </header>
+        )}
 
         {backendOnline === false && (
           <div className="flex items-center gap-2 rounded-xl bg-error-container text-on-error-container text-body-md px-4 py-3">
@@ -792,225 +833,312 @@ export default function App() {
           </div>
         )}
 
-        {role === "victim" && (
-          <AuraVoiceConversation
-            cameraActive={active}
-            onToggleCamera={(on) => setActive(on)}
-            onStartAnalysis={startConversationAnalysis}
-            onStopAnalysis={stopConversationAnalysis}
-            onOpenSupport={() => setPage("support")}
-            onOpenInsights={() => setPage("insights")}
-            onOpenSafetyPlan={() => setPage("safety-plan")}
-          />
-        )}
-
-        <AnalysisControls
-          running={running}
-          analysing={starting}
-          status={pipelineStatus}
-          mode={mode}
-          language={language}
-          languages={LANGUAGES}
-          canGenerateReport={observations.length >= MIN_OBSERVATIONS_FOR_REPORT && !reportLoading}
-          onToggle={handleAnalyseNow}
-          onModeChange={setMode}
-          onLanguageChange={setLanguage}
-          onGenerateReport={handleGenerateReport}
-        />
-
-        {/* Top Row: Visualization & Signals */}
-        <section className="grid grid-cols-1 lg:grid-cols-12 gap-gutter">
-          {/* Central Visualization */}
-          <div className="lg:col-span-8 bg-surface-container-lowest rounded-[24px] shadow-ambient-lg p-stack-md flex flex-col md:flex-row items-center gap-stack-md relative overflow-hidden">
-            <div className="w-full md:w-1/2 flex justify-center items-center relative">
-              <div className="text-center bg-surface-container-low rounded-full p-8 shadow-ambient-md border border-outline-variant aspect-square flex flex-col items-center justify-center w-56 h-56">
-                <p className="text-label-sm text-on-surface-variant uppercase tracking-wider mb-1">Distress Signal</p>
-                <p className="text-display-lg text-primary leading-none mb-2">
-                  {running ? Math.round(heroDistressScore) : "—"}
-                  <span className="text-headline-md text-outline">/100</span>
-                </p>
-                <div className="inline-flex items-center gap-2 bg-secondary-container text-on-secondary-container px-3 py-1 rounded-full text-label-sm">
-                  <span className="material-symbols-outlined text-[16px]">check_circle</span>
-                  Confidence {heroConfidence !== null ? `${Math.round(heroConfidence)}%` : "—"}
-                </div>
-              </div>
-              <p className="text-label-sm text-outline text-center mt-3 max-w-[220px] mx-auto">
-                Decision-support signal — not a clinical diagnosis.
-              </p>
-            </div>
-
-            <div className="w-full md:w-1/2 flex flex-col gap-stack-sm">
-              <h2 className="text-headline-md text-on-surface mb-2">Synchronized Signals</h2>
-
-              <div className="bg-surface-container-low rounded-xl p-4 flex items-center justify-between border border-transparent hover:border-primary/20 transition-colors">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-full bg-primary-container/10 flex items-center justify-center text-primary">
-                    <span className="material-symbols-outlined">face</span>
-                  </div>
-                  <div>
-                    <p className="text-label-sm text-on-surface-variant uppercase">Face · Emotion</p>
-                    <p className="text-body-md font-medium text-on-surface capitalize">
-                      {active && latest?.emotion?.dominant ? latest.emotion.dominant : "Not detected"}
-                    </p>
-                  </div>
-                </div>
-                <div className="text-headline-md text-primary">
-                  {active && latest?.emotion?.confidence != null ? `${Math.round(latest.emotion.confidence)}%` : "—"}
-                </div>
-              </div>
-
-              <div className="bg-surface-container-low rounded-xl p-4 flex items-center justify-between border border-transparent hover:border-secondary/20 transition-colors">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-full bg-secondary-container/10 flex items-center justify-center text-secondary">
-                    <span className="material-symbols-outlined">graphic_eq</span>
-                  </div>
-                  <div>
-                    <p className="text-label-sm text-on-surface-variant uppercase">Voice · Signal</p>
-                    <p className="text-body-md font-medium text-on-surface capitalize">
-                      {voiceInfoNow?.observed ?? "Not detected"}
-                    </p>
-                  </div>
-                </div>
-                <div className="text-headline-md text-secondary">
-                  {voiceInfoNow?.confidence != null ? `${Math.round(voiceInfoNow.confidence)}%` : "—"}
-                </div>
-              </div>
-
-              <div className="bg-surface-container-low rounded-xl p-4 flex items-center justify-between border border-transparent hover:border-tertiary/20 transition-colors">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-full bg-tertiary-container/10 flex items-center justify-center text-tertiary">
-                    <span className="material-symbols-outlined">chat</span>
-                  </div>
-                  <div>
-                    <p className="text-label-sm text-on-surface-variant uppercase">Text · Sentiment</p>
-                    <p className="text-body-md font-medium text-on-surface capitalize">
-                      {latestTextEmotion?.available
-                        ? latestTextEmotion.sentiment?.dominant ?? "Not detected"
-                        : "Not detected"}
-                    </p>
-                  </div>
-                </div>
-                <div className="text-headline-md text-tertiary">
-                  {latestTextEmotion?.available && latestTextEmotion.confidence != null
-                    ? `${Math.round(latestTextEmotion.confidence)}%`
-                    : "—"}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Side Panel: Camera preview + transcript */}
-          <div className="lg:col-span-4 flex flex-col gap-gutter">
-            <div className="bg-surface-container-lowest rounded-[24px] shadow-ambient-md overflow-hidden relative aspect-video min-h-[280px]">
-              <LiveEmotionCamera
-                active={active}
-                mode={mode}
-                sessionId={sessionIdRef.current}
-                onResult={handleResult}
-                onStateChange={setCameraState}
-                onFatalError={(msg) => {
-                  setFatalError(msg)
-                  setActive(false)
-                }}
-                onMetrics={handleMetrics}
-              />
-              {active && (
-                <div className="absolute inset-0 z-0 pointer-events-none border-2 border-primary/30 m-6 rounded-lg">
-                  <div className="w-4 h-4 border-t-2 border-l-2 border-primary absolute top-0 left-0 -mt-1 -ml-1" />
-                  <div className="w-4 h-4 border-t-2 border-r-2 border-primary absolute top-0 right-0 -mt-1 -mr-1" />
-                  <div className="w-4 h-4 border-b-2 border-l-2 border-primary absolute bottom-0 left-0 -mb-1 -ml-1" />
-                  <div className="w-4 h-4 border-b-2 border-r-2 border-primary absolute bottom-0 right-0 -mb-1 -mr-1" />
-                </div>
-              )}
-            </div>
-
-            <LiveTranscript
-              lines={transcriptLines}
-              livePartial={livePartialTranscript}
-              textEmotion={latestTextEmotion}
-              groqInsight={groqInsight}
+        {role === "victim" ? (
+          <>
+            <AuraVoiceConversation
+              cameraActive={active}
+              onToggleCamera={(on) => setActive(on)}
+              onStartAnalysis={startConversationAnalysis}
+              onStopAnalysis={stopConversationAnalysis}
+              onOpenSupport={() => setPage("support")}
+              onOpenInsights={() => setPage("insights")}
+              observationSummary={observationSummary}
             />
-          </div>
-        </section>
 
-        {/* The real microphone-capture/analysis loop stays mounted so voice
-            data keeps flowing into the compact Voice signal card and the
-            timeline above - only its own verbose technical readout is
-            hidden, since that detail is now redundant with the hero. */}
-        <div className="hidden">
-          <VoiceAnalysis
-            active={voiceActive}
-            capabilities={voiceCaps}
-            language={language}
-            sessionId={sessionIdRef.current}
-            onFrame={handleVoiceFrame}
-            onFatalError={(msg) => {
-              setFatalError(msg)
-              setVoiceActive(false)
-            }}
-          />
-        </div>
+            {hiddenVoiceAnalysis}
 
-        <div className="rounded-[24px] bg-surface-container-lowest border border-outline-variant p-stack-md card-shadow">
-          <h2 className="text-headline-md text-on-surface mb-3 flex items-center gap-2">
-            <span className="material-symbols-outlined text-tertiary">timeline</span>
-            Multimodal Timeline
-          </h2>
-          <MultimodalTimeline points={timeline} />
-        </div>
+            {/* Camera preview is a small, optional confirmation that the
+                explicit camera toggle actually did something - never the
+                large, primary element it used to be. */}
+            {active && (
+              <div className="w-40 aspect-video rounded-2xl overflow-hidden shadow-ambient-md self-start">
+                <LiveEmotionCamera
+                  active={active}
+                  mode={mode}
+                  sessionId={sessionIdRef.current}
+                  onResult={handleResult}
+                  onStateChange={setCameraState}
+                  onFatalError={(msg) => {
+                    setFatalError(msg)
+                    setActive(false)
+                  }}
+                  onMetrics={handleMetrics}
+                />
+              </div>
+            )}
+            {!active && (
+              // Mounted off-screen (not display:none) so a later camera
+              // toggle can still acquire the device without a remount delay
+              // - camera analysis genuinely never runs until active is true.
+              <div className="hidden">
+                <LiveEmotionCamera
+                  active={active}
+                  mode={mode}
+                  sessionId={sessionIdRef.current}
+                  onResult={handleResult}
+                  onStateChange={setCameraState}
+                  onFatalError={(msg) => {
+                    setFatalError(msg)
+                    setActive(false)
+                  }}
+                  onMetrics={handleMetrics}
+                />
+              </div>
+            )}
 
-        <div className="rounded-[24px] bg-surface-container-lowest border border-outline-variant p-stack-md card-shadow">
-          <h2 className="text-headline-md text-on-surface mb-3 flex items-center gap-2">
-            <span className="material-symbols-outlined text-tertiary">show_chart</span>
-            Emotion Graph
-          </h2>
-          <EmotionTimeline observations={observations} />
-        </div>
+            <ConversationInsights points={timeline} observations={observations} />
 
-        {reportLoading && (
-          <div className="rounded-[24px] bg-surface-container-lowest border border-outline-variant p-6 text-center text-body-md text-on-surface-variant card-shadow">
-            Generating final report from session observations...
-          </div>
+            {reportLoading && (
+              <div className="rounded-[24px] bg-surface-container-lowest border border-outline-variant p-6 text-center text-body-md text-on-surface-variant card-shadow">
+                Generating final report from session observations...
+              </div>
+            )}
+            {report && <SessionReportView report={report} onClose={() => setReport(null)} />}
+
+            <details className="rounded-[24px] bg-surface-container-lowest border border-outline-variant p-stack-md">
+              <summary className="cursor-pointer text-label-md font-semibold text-on-surface-variant">
+                Analysis preferences
+              </summary>
+              <div className="mt-4">
+                <AnalysisControls
+                  running={running}
+                  analysing={starting}
+                  status={pipelineStatus}
+                  mode={mode}
+                  language={language}
+                  languages={LANGUAGES}
+                  canGenerateReport={observations.length >= MIN_OBSERVATIONS_FOR_REPORT && !reportLoading}
+                  onToggle={handleAnalyseNow}
+                  onModeChange={setMode}
+                  onLanguageChange={setLanguage}
+                  onGenerateReport={handleGenerateReport}
+                />
+              </div>
+            </details>
+
+            <details className="rounded-[24px] bg-surface-container-lowest border border-outline-variant p-stack-md">
+              <summary className="cursor-pointer text-label-md font-semibold text-on-surface-variant">
+                How Aura understands signals
+              </summary>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-gutter mt-4">
+                <div>
+                  <h4 className="text-label-md font-semibold text-on-surface">Voice</h4>
+                  <p className="text-label-sm text-on-surface-variant mt-1">Pitch, tempo and acoustic patterns.</p>
+                </div>
+                <div>
+                  <h4 className="text-label-md font-semibold text-on-surface">Face</h4>
+                  <p className="text-label-sm text-on-surface-variant mt-1">
+                    Observable facial movement when camera analysis is enabled.
+                  </p>
+                </div>
+                <div>
+                  <h4 className="text-label-md font-semibold text-on-surface">Speech</h4>
+                  <p className="text-label-sm text-on-surface-variant mt-1">
+                    Words, themes and sentiment from the conversation.
+                  </p>
+                </div>
+              </div>
+              <p className="text-label-sm text-outline mt-4">
+                These are observable signals, not measurements of a person's inner emotional state and
+                not a clinical diagnosis.
+              </p>
+            </details>
+          </>
+        ) : (
+          <>
+            <AnalysisControls
+              running={running}
+              analysing={starting}
+              status={pipelineStatus}
+              mode={mode}
+              language={language}
+              languages={LANGUAGES}
+              canGenerateReport={observations.length >= MIN_OBSERVATIONS_FOR_REPORT && !reportLoading}
+              onToggle={handleAnalyseNow}
+              onModeChange={setMode}
+              onLanguageChange={setLanguage}
+              onGenerateReport={handleGenerateReport}
+            />
+
+            {/* Top Row: Visualization & Signals */}
+            <section className="grid grid-cols-1 lg:grid-cols-12 gap-gutter">
+              {/* Central Visualization */}
+              <div className="lg:col-span-8 bg-surface-container-lowest rounded-[24px] shadow-ambient-lg p-stack-md flex flex-col md:flex-row items-center gap-stack-md relative overflow-hidden">
+                <div className="w-full md:w-1/2 flex justify-center items-center relative">
+                  <div className="text-center bg-surface-container-low rounded-full p-8 shadow-ambient-md border border-outline-variant aspect-square flex flex-col items-center justify-center w-56 h-56">
+                    <p className="text-label-sm text-on-surface-variant uppercase tracking-wider mb-1">Distress Signal</p>
+                    <p className="text-display-lg text-primary leading-none mb-2">
+                      {running ? Math.round(heroDistressScore) : "—"}
+                      <span className="text-headline-md text-outline">/100</span>
+                    </p>
+                    <div className="inline-flex items-center gap-2 bg-secondary-container text-on-secondary-container px-3 py-1 rounded-full text-label-sm">
+                      <span className="material-symbols-outlined text-[16px]">check_circle</span>
+                      Confidence {heroConfidence !== null ? `${Math.round(heroConfidence)}%` : "—"}
+                    </div>
+                  </div>
+                  <p className="text-label-sm text-outline text-center mt-3 max-w-[220px] mx-auto">
+                    Decision-support signal — not a clinical diagnosis.
+                  </p>
+                </div>
+
+                <div className="w-full md:w-1/2 flex flex-col gap-stack-sm">
+                  <h2 className="text-headline-md text-on-surface mb-2">Synchronized Signals</h2>
+
+                  <div className="bg-surface-container-low rounded-xl p-4 flex items-center justify-between border border-transparent hover:border-primary/20 transition-colors">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-full bg-primary-container/10 flex items-center justify-center text-primary">
+                        <span className="material-symbols-outlined">face</span>
+                      </div>
+                      <div>
+                        <p className="text-label-sm text-on-surface-variant uppercase">Face · Emotion</p>
+                        <p className="text-body-md font-medium text-on-surface capitalize">
+                          {active && latest?.emotion?.dominant ? latest.emotion.dominant : "Not detected"}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-headline-md text-primary">
+                      {active && latest?.emotion?.confidence != null ? `${Math.round(latest.emotion.confidence)}%` : "—"}
+                    </div>
+                  </div>
+
+                  <div className="bg-surface-container-low rounded-xl p-4 flex items-center justify-between border border-transparent hover:border-secondary/20 transition-colors">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-full bg-secondary-container/10 flex items-center justify-center text-secondary">
+                        <span className="material-symbols-outlined">graphic_eq</span>
+                      </div>
+                      <div>
+                        <p className="text-label-sm text-on-surface-variant uppercase">Voice · Signal</p>
+                        <p className="text-body-md font-medium text-on-surface capitalize">
+                          {voiceInfoNow?.observed ?? "Not detected"}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-headline-md text-secondary">
+                      {voiceInfoNow?.confidence != null ? `${Math.round(voiceInfoNow.confidence)}%` : "—"}
+                    </div>
+                  </div>
+
+                  <div className="bg-surface-container-low rounded-xl p-4 flex items-center justify-between border border-transparent hover:border-tertiary/20 transition-colors">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-full bg-tertiary-container/10 flex items-center justify-center text-tertiary">
+                        <span className="material-symbols-outlined">chat</span>
+                      </div>
+                      <div>
+                        <p className="text-label-sm text-on-surface-variant uppercase">Text · Sentiment</p>
+                        <p className="text-body-md font-medium text-on-surface capitalize">
+                          {latestTextEmotion?.available
+                            ? latestTextEmotion.sentiment?.dominant ?? "Not detected"
+                            : "Not detected"}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-headline-md text-tertiary">
+                      {latestTextEmotion?.available && latestTextEmotion.confidence != null
+                        ? `${Math.round(latestTextEmotion.confidence)}%`
+                        : "—"}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Side Panel: Camera preview + transcript */}
+              <div className="lg:col-span-4 flex flex-col gap-gutter">
+                <div className="bg-surface-container-lowest rounded-[24px] shadow-ambient-md overflow-hidden relative aspect-video min-h-[280px]">
+                  <LiveEmotionCamera
+                    active={active}
+                    mode={mode}
+                    sessionId={sessionIdRef.current}
+                    onResult={handleResult}
+                    onStateChange={setCameraState}
+                    onFatalError={(msg) => {
+                      setFatalError(msg)
+                      setActive(false)
+                    }}
+                    onMetrics={handleMetrics}
+                  />
+                  {active && (
+                    <div className="absolute inset-0 z-0 pointer-events-none border-2 border-primary/30 m-6 rounded-lg">
+                      <div className="w-4 h-4 border-t-2 border-l-2 border-primary absolute top-0 left-0 -mt-1 -ml-1" />
+                      <div className="w-4 h-4 border-t-2 border-r-2 border-primary absolute top-0 right-0 -mt-1 -mr-1" />
+                      <div className="w-4 h-4 border-b-2 border-l-2 border-primary absolute bottom-0 left-0 -mb-1 -ml-1" />
+                      <div className="w-4 h-4 border-b-2 border-r-2 border-primary absolute bottom-0 right-0 -mb-1 -mr-1" />
+                    </div>
+                  )}
+                </div>
+
+                <LiveTranscript
+                  lines={transcriptLines}
+                  livePartial={livePartialTranscript}
+                  textEmotion={latestTextEmotion}
+                  groqInsight={groqInsight}
+                />
+              </div>
+            </section>
+
+            {hiddenVoiceAnalysis}
+
+            <div className="rounded-[24px] bg-surface-container-lowest border border-outline-variant p-stack-md card-shadow">
+              <h2 className="text-headline-md text-on-surface mb-3 flex items-center gap-2">
+                <span className="material-symbols-outlined text-tertiary">timeline</span>
+                Multimodal Timeline
+              </h2>
+              <MultimodalTimeline points={timeline} />
+            </div>
+
+            <div className="rounded-[24px] bg-surface-container-lowest border border-outline-variant p-stack-md card-shadow">
+              <h2 className="text-headline-md text-on-surface mb-3 flex items-center gap-2">
+                <span className="material-symbols-outlined text-tertiary">show_chart</span>
+                Emotion Graph
+              </h2>
+              <EmotionTimeline observations={observations} />
+            </div>
+
+            {reportLoading && (
+              <div className="rounded-[24px] bg-surface-container-lowest border border-outline-variant p-6 text-center text-body-md text-on-surface-variant card-shadow">
+                Generating final report from session observations...
+              </div>
+            )}
+
+            {report && <SessionReportView report={report} onClose={() => setReport(null)} />}
+
+            {/* Methodology */}
+            <section className="bg-surface-container-lowest rounded-[24px] shadow-ambient-md p-stack-md">
+              <h3 className="text-headline-md text-on-surface mb-stack-sm text-center">How AURA Recognizes</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-gutter">
+                <div className="flex flex-col items-center text-center p-4">
+                  <div className="w-16 h-16 rounded-full bg-primary-container/10 flex items-center justify-center mb-4">
+                    <span className="material-symbols-outlined text-[32px] text-primary">face_retouching_natural</span>
+                  </div>
+                  <h4 className="text-label-md font-semibold text-on-surface uppercase tracking-wide">Face</h4>
+                  <p className="text-body-md text-on-surface-variant mt-2 text-sm">Powered by MediaPipe</p>
+                  <p className="text-label-sm text-outline mt-1 max-w-[200px]">
+                    Analyzes facial landmarks and region motion to detect micro-expressions.
+                  </p>
+                </div>
+                <div className="flex flex-col items-center text-center p-4">
+                  <div className="w-16 h-16 rounded-full bg-secondary-container/10 flex items-center justify-center mb-4">
+                    <span className="material-symbols-outlined text-[32px] text-secondary">settings_voice</span>
+                  </div>
+                  <h4 className="text-label-md font-semibold text-on-surface uppercase tracking-wide">Voice</h4>
+                  <p className="text-body-md text-on-surface-variant mt-2 text-sm">Acoustic Analysis</p>
+                  <p className="text-label-sm text-outline mt-1 max-w-[200px]">
+                    Measures pitch, tempo, and vocal tremor patterns.
+                  </p>
+                </div>
+                <div className="flex flex-col items-center text-center p-4">
+                  <div className="w-16 h-16 rounded-full bg-tertiary-container/10 flex items-center justify-center mb-4">
+                    <span className="material-symbols-outlined text-[32px] text-tertiary">notes</span>
+                  </div>
+                  <h4 className="text-label-md font-semibold text-on-surface uppercase tracking-wide">Text</h4>
+                  <p className="text-body-md text-on-surface-variant mt-2 text-sm">Local NLP + Groq</p>
+                  <p className="text-label-sm text-outline mt-1 max-w-[200px]">
+                    Local models score sentiment; Groq grounds concerns, themes and suggestions in your own words.
+                  </p>
+                </div>
+              </div>
+            </section>
+          </>
         )}
-
-        {report && <SessionReportView report={report} onClose={() => setReport(null)} />}
-
-        {/* Methodology */}
-        <section className="bg-surface-container-lowest rounded-[24px] shadow-ambient-md p-stack-md">
-          <h3 className="text-headline-md text-on-surface mb-stack-sm text-center">How AURA Recognizes</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-gutter">
-            <div className="flex flex-col items-center text-center p-4">
-              <div className="w-16 h-16 rounded-full bg-primary-container/10 flex items-center justify-center mb-4">
-                <span className="material-symbols-outlined text-[32px] text-primary">face_retouching_natural</span>
-              </div>
-              <h4 className="text-label-md font-semibold text-on-surface uppercase tracking-wide">Face</h4>
-              <p className="text-body-md text-on-surface-variant mt-2 text-sm">Powered by MediaPipe</p>
-              <p className="text-label-sm text-outline mt-1 max-w-[200px]">
-                Analyzes facial landmarks and region motion to detect micro-expressions.
-              </p>
-            </div>
-            <div className="flex flex-col items-center text-center p-4">
-              <div className="w-16 h-16 rounded-full bg-secondary-container/10 flex items-center justify-center mb-4">
-                <span className="material-symbols-outlined text-[32px] text-secondary">settings_voice</span>
-              </div>
-              <h4 className="text-label-md font-semibold text-on-surface uppercase tracking-wide">Voice</h4>
-              <p className="text-body-md text-on-surface-variant mt-2 text-sm">Acoustic Analysis</p>
-              <p className="text-label-sm text-outline mt-1 max-w-[200px]">
-                Measures pitch, tempo, and vocal tremor patterns.
-              </p>
-            </div>
-            <div className="flex flex-col items-center text-center p-4">
-              <div className="w-16 h-16 rounded-full bg-tertiary-container/10 flex items-center justify-center mb-4">
-                <span className="material-symbols-outlined text-[32px] text-tertiary">notes</span>
-              </div>
-              <h4 className="text-label-md font-semibold text-on-surface uppercase tracking-wide">Text</h4>
-              <p className="text-body-md text-on-surface-variant mt-2 text-sm">Local NLP + Groq</p>
-              <p className="text-label-sm text-outline mt-1 max-w-[200px]">
-                Local models score sentiment; Groq grounds concerns, themes and suggestions in your own words.
-              </p>
-            </div>
-          </div>
-        </section>
     </div>
   )
 
