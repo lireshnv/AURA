@@ -52,6 +52,10 @@ class SpeakRequest(BaseModel):
     text: str = Field(min_length=1, max_length=chatbot_service.MAX_TTS_CHARS)
 
 
+class SafetyCheckRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=MAX_MESSAGE_CHARS)
+
+
 class ChatMessage(BaseModel):
     role: str
     content: str
@@ -166,6 +170,28 @@ async def chat(payload: ChatRequest, aura_id: str = Depends(resolve_aura_id)):
         safety=safety_payload,
         used_web_search=result.used_web_search,
     )
+
+
+@router.post("/safety-check")
+async def safety_check(payload: SafetyCheckRequest, aura_id: str = Depends(resolve_aura_id)):
+    """Runs the same deterministic crisis-safety layer used on every chat
+    message, for surfaces outside the Companion chat itself (e.g. a Check-In
+    note or voice transcript). Never logs the text, only that a category
+    fired - identical guarantee to the chat path."""
+    if _rate_limited(aura_id):
+        raise HTTPException(status_code=429, detail="Please wait a moment before retrying.")
+    safety = chat_safety.check_message(payload.text)
+    if not safety.triggered:
+        return {"success": True, "safety": None}
+    return {
+        "success": True,
+        "safety": {
+            "triggered": True,
+            "severity": safety.severity,
+            "message": safety.message,
+            "resources": safety.resources,
+        },
+    }
 
 
 @router.get("/history")

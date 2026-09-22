@@ -75,6 +75,12 @@ these national ones — they work the same way everywhere in India:**
 - **181** — Women Helpline (Ministry of Women & Child Development)
 - **1091** — Women Police Helpline, where active in that state
 - **1098** — Child Helpline, for a child in danger or needing care
+- **14416** (or 1-800-891-4416) — Tele-MANAS, India's national 24/7 mental
+  health support and counselling helpline (Ministry of Health & Family
+  Welfare). Offer this one specifically for emotional distress, low mood or
+  suicidal thoughts that are not an active physical emergency — 112 is for
+  physical danger, Tele-MANAS is for someone who needs to talk to a
+  counsellor right now.
 
 You may also mention that schemes like Ayushman Bharat are administered by
 the **National Health Authority (NHA)** in general terms, without inventing

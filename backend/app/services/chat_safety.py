@@ -146,6 +146,12 @@ INDIA_CHILD_HELPLINE = {
     "detail": "National 24/7 helpline for a child in danger or in need of care and protection.",
     "priority": "high",
 }
+TELE_MANAS = {
+    "label": "14416 — Tele-MANAS",
+    "detail": "India's national 24/7 mental health support and counselling helpline "
+              "(Ministry of Health & Family Welfare). Also reachable at 1-800-891-4416.",
+    "priority": "high",
+}
 TRUSTED_PERSON = {
     "label": "A person you trust",
     "detail": "Someone who can physically be with you right now.",
@@ -160,10 +166,10 @@ AURA_COUNSELLOR = {
 # Resources shown per triggered category. A message can trigger more than one
 # category; check_message() merges and de-duplicates by label.
 CATEGORY_RESOURCES: Dict[str, List[Dict]] = {
-    "self_harm": [INDIA_EMERGENCY, TRUSTED_PERSON, AURA_COUNSELLOR],
+    "self_harm": [INDIA_EMERGENCY, TELE_MANAS, TRUSTED_PERSON, AURA_COUNSELLOR],
     "immediate_danger": [INDIA_EMERGENCY, INDIA_POLICE, TRUSTED_PERSON],
-    "domestic_violence": [INDIA_WOMEN_HELPLINE, INDIA_WOMEN_POLICE_HELPLINE, INDIA_EMERGENCY, AURA_COUNSELLOR],
-    "harm_to_others": [TRUSTED_PERSON, AURA_COUNSELLOR],
+    "domestic_violence": [INDIA_WOMEN_HELPLINE, INDIA_WOMEN_POLICE_HELPLINE, INDIA_EMERGENCY, TELE_MANAS, AURA_COUNSELLOR],
+    "harm_to_others": [TELE_MANAS, TRUSTED_PERSON, AURA_COUNSELLOR],
     "medical_emergency": [INDIA_EMERGENCY],
 }
 

@@ -113,6 +113,29 @@ export async function clearConversation(sessionId: string): Promise<boolean> {
   }
 }
 
+/**
+ * Runs the same deterministic crisis-safety layer used on every chat message,
+ * for surfaces outside the Companion chat (e.g. a Check-In note). Returns
+ * null when nothing is triggered, or when the check itself is unavailable -
+ * a failed safety check must never be shown as a false "all clear" banner,
+ * so callers should treat null as "no signal", not "confirmed safe".
+ */
+export async function checkTextSafety(text: string): Promise<SafetyBlock | null> {
+  try {
+    const res = await fetch(`${CHAT}/safety-check`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+      signal: AbortSignal.timeout(10000),
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    return data.success && data.safety ? (data.safety as SafetyBlock) : null
+  } catch {
+    return null
+  }
+}
+
 export async function transcribeVoice(blob: Blob): Promise<string | null> {
   try {
     const form = new FormData()

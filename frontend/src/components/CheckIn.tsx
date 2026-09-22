@@ -1,9 +1,9 @@
 import { useRef, useState } from "react"
-import { Mic, Square, ArrowRight, Check } from "lucide-react"
+import { Mic, Square, ArrowRight, Check, ShieldAlert } from "lucide-react"
 import { submitCheckin } from "../lib/twinApi"
-import { transcribeVoice } from "../lib/chatApi"
+import { checkTextSafety, transcribeVoice, SafetyBlock } from "../lib/chatApi"
 
-type Step = "feeling" | "context" | "note" | "response"
+type Step = "feeling" | "context" | "note" | "safety" | "response"
 
 interface FeelingOption {
   key: string
@@ -83,6 +83,7 @@ export default function CheckIn({ onDone, onOpenCompanion, onOpenSupport }: Prop
   const [transcribing, setTranscribing] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
+  const [safety, setSafety] = useState<SafetyBlock | null>(null)
 
   const recorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
@@ -121,19 +122,27 @@ export default function CheckIn({ onDone, onOpenCompanion, onOpenSupport }: Prop
 
   const submit = async () => {
     setSubmitting(true)
+    const noteText = note.trim()
     try {
       await submitCheckin({
         ...(feeling?.moodScore != null ? { mood: feeling.moodScore } : {}),
         feeling: feelingLabel ?? "Not specified",
         categories,
-        note: note.trim() || undefined,
+        note: noteText || undefined,
         skipped: false,
       })
     } catch {
       // A failed write must never block the supportive response that follows.
-    } finally {
-      setSubmitting(false)
-      setSubmitted(true)
+    }
+    // The safety check runs independently of whether the check-in write
+    // succeeded - it must never be skipped just because storage failed.
+    const safetyResult = noteText ? await checkTextSafety(noteText) : null
+    setSubmitting(false)
+    setSubmitted(true)
+    if (safetyResult) {
+      setSafety(safetyResult)
+      setStep("safety")
+    } else {
       setStep("response")
     }
   }
@@ -288,6 +297,43 @@ export default function CheckIn({ onDone, onOpenCompanion, onOpenSupport }: Prop
               >
                 {submitting ? "Saving…" : "Continue"} <ArrowRight size={16} />
               </button>
+            </div>
+          </>
+        )}
+
+        {step === "safety" && safety && (
+          <>
+            <div className="flex items-center gap-2 text-error mb-4">
+              <ShieldAlert size={18} />
+              <span className="text-label-md font-semibold">
+                {safety.severity === "urgent" ? "This may need urgent attention" : "Aura noticed something"}
+              </span>
+            </div>
+            <h1 className="text-headline-md text-on-surface mb-2">{safety.message}</h1>
+            <p className="text-body-md text-on-surface-variant mb-4">Are you safe right now?</p>
+            <div className="flex gap-3 mb-6">
+              <button
+                onClick={() => setStep("response")}
+                className="flex-1 rounded-xl border border-outline-variant px-4 py-3 text-label-md font-semibold text-on-surface hover:border-primary"
+              >
+                Yes, I'm safe
+              </button>
+              <button
+                onClick={onOpenSupport}
+                className="flex-1 rounded-xl bg-error text-on-error px-4 py-3 text-label-md font-semibold"
+              >
+                I need help now
+              </button>
+            </div>
+            <div className="rounded-xl bg-error-container/30 border border-error/20 px-4 py-3.5">
+              <p className="text-label-sm font-semibold text-on-error-container mb-1.5">Support is available right now</p>
+              <ul className="space-y-1">
+                {safety.resources.map((r) => (
+                  <li key={r.label} className="text-label-sm text-on-error-container">
+                    <span className="font-semibold">{r.label}</span> — {r.detail}
+                  </li>
+                ))}
+              </ul>
             </div>
           </>
         )}

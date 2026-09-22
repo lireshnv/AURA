@@ -13,7 +13,8 @@ const LEARN_TOPICS = [
 ]
 
 const EMERGENCY_RESOURCES = [
-  { label: "Emergency services", detail: "If you are in immediate danger, contact your local emergency number." },
+  { label: "112 — Emergency services", detail: "If you are in immediate danger, contact 112 (police/fire/medical, nationwide)." },
+  { label: "14416 — Tele-MANAS", detail: "India's national 24/7 mental health support and counselling helpline. Also 1-800-891-4416." },
   { label: "A person you trust", detail: "Someone who can physically be with you right now." },
   { label: "Your AURA counsellor", detail: "You can request human support from Insights at any time." },
 ]
