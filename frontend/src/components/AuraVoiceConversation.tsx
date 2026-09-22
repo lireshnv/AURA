@@ -64,6 +64,7 @@ export default function AuraVoiceConversation({
   const [showFullTranscript, setShowFullTranscript] = useState(false)
   const [feedback, setFeedback] = useState<FeelingAfter | null>(null)
   const [showCalmActivity, setShowCalmActivity] = useState(false)
+  const [micError, setMicError] = useState<string | null>(null)
 
   const { messages, safetyBlocks, sending, speaking, status, send, reset, greet } = useAuraConversation(language)
 
@@ -142,6 +143,7 @@ export default function AuraVoiceConversation({
   }, [messages.length])
 
   const start = async () => {
+    setMicError(null)
     try {
       const capture = new RollingAudioCapture(2, 700, 20)
       await capture.start()
@@ -157,7 +159,19 @@ export default function AuraVoiceConversation({
       // until the user speaks first - a scripted, spoken opener, not a
       // fabricated model reply (see useAuraConversation's greet()).
       if (messages.length === 0) greet("I'm here. What's on your mind?")
-    } catch {
+    } catch (err) {
+      // A silent failure here reads as "the button did nothing" - the
+      // single most common shape of "microphone isn't working" reports.
+      const name = (err as Error)?.name
+      setMicError(
+        name === "NotAllowedError" || name === "PermissionDeniedError"
+          ? "Microphone access was blocked. Please allow microphone access for this site and try again."
+          : name === "NotFoundError" || name === "DevicesNotFoundError"
+          ? "No microphone was found on this device."
+          : name === "NotReadableError"
+          ? "The microphone is already in use by another application or browser tab."
+          : `Couldn't access the microphone: ${(err as Error)?.message || "unknown error"}.`
+      )
       setPhase("idle")
     }
   }
@@ -287,6 +301,10 @@ export default function AuraVoiceConversation({
             <div className="w-full max-w-sm rounded-xl bg-surface-container-low border border-outline-variant p-2 mb-4">
               <canvas ref={canvasRef} width={320} height={40} className="w-full h-10" />
             </div>
+          )}
+
+          {micError && (
+            <p className="text-label-sm text-error mb-3 max-w-sm">{micError}</p>
           )}
 
           <div className="flex items-center gap-3">
