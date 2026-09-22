@@ -3,6 +3,7 @@ import { Wind, PhoneCall, BookOpen, AlertTriangle, MessageCircle, Users, Stethos
 import { ACTIVITIES, ActivityModal } from "./DailyCare"
 import { CareActivityType, setConsent, submitCareAction } from "../lib/twinApi"
 import { fetchSupportPathways, fetchSupportHistory, InterventionRecord } from "../lib/auraApi"
+import CaseDocuments from "./CaseDocuments"
 
 // Plain-language status a victim sees for a decision a counsellor/admin made
 // on their behalf - never the internal "approved/rejected/escalated" wording,
@@ -145,18 +146,22 @@ export default function Support({ auraId, onOpenCompanion, onOpenSafetyPlan }: P
       </section>
 
       {/* Case Monitoring - what happened after a support pathway was raised
-          for this person. Reuses the same persisted Intervention history the
-          counsellor/admin views read from, so this is never a second source
-          of truth - just a plain-language view of the same record. */}
-      {history && history.length > 0 && (
-        <section className="bg-surface-container-lowest rounded-[24px] shadow-ambient-md p-stack-md">
-          <h2 className="text-headline-md text-on-surface mb-1 flex items-center gap-2">
-            <ClipboardList size={20} className="text-primary" /> Your Case
-          </h2>
-          <p className="text-body-md text-on-surface-variant mb-4">
-            Where things stand with support that's been raised for you.
-          </p>
-          <div className="flex flex-col divide-y divide-outline-variant">
+          for this person, plus documents tracked against the case. Reuses
+          the same persisted Intervention history the counsellor/admin views
+          read from, so this is never a second source of truth - just a
+          plain-language view of the same record. Always shown (not gated on
+          history existing) since a document can be attached before any
+          decision has been made. */}
+      <section className="bg-surface-container-lowest rounded-[24px] shadow-ambient-md p-stack-md">
+        <h2 className="text-headline-md text-on-surface mb-1 flex items-center gap-2">
+          <ClipboardList size={20} className="text-primary" /> Your Case
+        </h2>
+        <p className="text-body-md text-on-surface-variant mb-4">
+          Where things stand with support that's been raised for you, and any documents kept with your case.
+        </p>
+
+        {history && history.length > 0 && (
+          <div className="flex flex-col divide-y divide-outline-variant mb-4">
             {history.slice(0, 6).map((h) => {
               const status = STATUS_COPY[h.status] ?? { label: h.status, tone: "text-on-surface-variant" }
               const when = h.decided_at ?? h.created_at
@@ -174,12 +179,16 @@ export default function Support({ auraId, onOpenCompanion, onOpenSafetyPlan }: P
                 </div>
               )
             })}
+            <p className="text-label-sm text-outline pt-3">
+              A person reviews and decides on every item here — this is a record of that, not an automated action.
+            </p>
           </div>
-          <p className="text-label-sm text-outline mt-3">
-            A person reviews and decides on every item here — this is a record of that, not an automated action.
-          </p>
-        </section>
-      )}
+        )}
+
+        <div className="border-t border-outline-variant pt-4">
+          <CaseDocuments auraId={auraId} />
+        </div>
+      </section>
 
       {/* Learn */}
       <section className="bg-surface-container-lowest rounded-[24px] shadow-ambient-md p-stack-md">

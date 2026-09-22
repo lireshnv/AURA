@@ -329,3 +329,71 @@ export const fetchAcknowledgements = (auraId: string) =>
 
 export const fetchSupportHistory = (auraId: string) =>
   getJson<{ success: boolean; interventions: InterventionRecord[] }>(`${AURA}/support/history/${auraId}`)
+
+export interface CaseDocumentRecord {
+  id: string
+  name: string
+  label: string | null
+  content_type: string
+  size_bytes: number
+  uploaded_by_role: string
+  created_at: string
+}
+
+export const fetchCaseDocuments = (auraId: string) =>
+  getJson<{ success: boolean; documents: CaseDocumentRecord[] }>(`${AURA}/case-documents/${auraId}`)
+
+export async function uploadCaseDocument(auraId: string, file: File, label?: string) {
+  try {
+    const form = new FormData()
+    form.append("file", file)
+    const params = new URLSearchParams()
+    if (label) params.set("label", label)
+    const res = await fetch(`${AURA}/case-documents/${auraId}${params.toString() ? `?${params}` : ""}`, {
+      method: "POST",
+      headers: { ...authHeader() }, // no Content-Type - the browser sets the multipart boundary
+      credentials: "include",
+      body: form,
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) return { success: false, error: data.detail ?? "Could not upload the document." }
+    return { success: true, ...data }
+  } catch {
+    return { success: false, error: "Could not reach the server." }
+  }
+}
+
+/** Downloads are auth-gated, so a plain <a href> can't be used (the browser
+ * won't attach the JWT) - fetch as a blob and trigger a save via an object URL. */
+export async function downloadCaseDocument(auraId: string, documentId: string, filename: string) {
+  try {
+    const res = await fetch(`${AURA}/case-documents/${auraId}/${documentId}/download`, {
+      headers: { ...authHeader() },
+      credentials: "include",
+    })
+    if (!res.ok) return { success: false, error: "Could not download the document." }
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+    return { success: true }
+  } catch {
+    return { success: false, error: "Could not reach the server." }
+  }
+}
+
+export async function deleteCaseDocument(auraId: string, documentId: string) {
+  try {
+    const res = await fetch(`${AURA}/case-documents/${auraId}/${documentId}`, {
+      method: "DELETE",
+      headers: { ...authHeader() },
+      credentials: "include",
+    })
+    return await res.json().catch(() => ({ success: res.ok }))
+  } catch {
+    return { success: false, error: "Could not reach the server." }
+  }
+}

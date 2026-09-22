@@ -17,6 +17,7 @@ import {
   setCaseType,
 } from "../lib/auraApi"
 import { fetchAuditLog, recordReview, AuditEntryRow } from "../lib/riskApi"
+import CaseDocuments from "./CaseDocuments"
 
 const TABS = [
   { key: "overview", label: "Overview" },
@@ -722,6 +723,10 @@ function CarePlanTab({
             </>
           )}
         </div>
+      </Card>
+      <Card>
+        <h4 className="text-label-md text-on-surface-variant mb-2">Case documents</h4>
+        <CaseDocuments auraId={selected} />
       </Card>
     </div>
   )

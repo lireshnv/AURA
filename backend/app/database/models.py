@@ -596,6 +596,30 @@ class CaseProfile(Base, TimestampMixin):
     state: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
 
 
+class CaseDocument(Base, TimestampMixin):
+    """A file attached to a case for tracking purposes - an FIR copy, medical
+    report, ID proof, etc. The victim themselves or an authorised
+    counsellor/admin can attach one; anyone with can_access_victim() on the
+    aura_id can see the list and download.
+
+    stored_name is a server-generated, non-guessable filename on disk;
+    original_name is only ever used for display, never for a filesystem
+    path, so a crafted original filename can't escape the upload directory.
+    """
+
+    __tablename__ = "case_documents"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    aura_id: Mapped[str] = mapped_column(String(40), index=True)
+    original_name: Mapped[str] = mapped_column(String(255))
+    stored_name: Mapped[str] = mapped_column(String(64), unique=True)
+    content_type: Mapped[str] = mapped_column(String(100))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    label: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    uploaded_by_user_id: Mapped[str] = mapped_column(String(36))
+    uploaded_by_role: Mapped[str] = mapped_column(String(20))
+
+
 class RecoveryRecord(Base, TimestampMixin):
     __tablename__ = "recovery_records"
 

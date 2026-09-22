@@ -27,18 +27,21 @@ architecture (MFA, encryption at rest, IAM) does not - see SECURITY_POSTURE,
 which is served from the API so the limitation travels with the product.
 """
 import random
+import secrets
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from . import ivrs_store, risk_service, twin_store
 from .core.config import settings
 from .database import get_db
-from .database.models import AuditLog, CaseProfile, CounsellorAssignment, Intervention, User
+from .database.models import AuditLog, CaseDocument, CaseProfile, CounsellorAssignment, Intervention, User
 from .services.ivrs_conversation import CALL_REASONS, opening_line
 from .digital_twin import (
     BASELINE_DIMENSIONS,
@@ -59,6 +62,22 @@ router = APIRouter(prefix="/api/aura", tags=["aura"])
 LOCAL_AURA_ID = "local-user"
 
 NO_DATA = "No data available"
+
+# Case-document uploads (FIR copy, medical report, ID proof, etc.). Stored on
+# local disk under a server-generated name - the original filename is kept
+# only as a display label in the DB, never used to build a filesystem path,
+# so a crafted original name can't traverse out of this directory.
+CASE_DOCUMENTS_DIR = Path(__file__).resolve().parent / "data" / "case_documents"
+CASE_DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
+_ALLOWED_DOCUMENT_TYPES = {
+    "application/pdf",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+_MAX_DOCUMENT_BYTES = 15 * 1024 * 1024  # 15 MB
 
 
 SECURITY_POSTURE = {
@@ -765,6 +784,160 @@ async def support_decision(
             "decided_by_ai": False,
         },
     }
+
+
+@router.get("/case-documents/{aura_id}")
+async def list_case_documents(
+    aura_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Tracked documents attached to this case - visible to the victim
+    themselves and any counsellor/admin authorised for this aura_id."""
+    if not can_access_victim(user, aura_id, db):
+        raise HTTPException(status_code=403, detail="Not authorised for this case.")
+    rows = (
+        db.query(CaseDocument)
+        .filter(CaseDocument.aura_id == aura_id)
+        .order_by(CaseDocument.created_at.desc())
+        .all()
+    )
+    return {
+        "success": True,
+        "documents": [
+            {
+                "id": r.id,
+                "name": r.original_name,
+                "label": r.label,
+                "content_type": r.content_type,
+                "size_bytes": r.size_bytes,
+                "uploaded_by_role": r.uploaded_by_role,
+                "created_at": r.created_at.isoformat(),
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.post("/case-documents/{aura_id}")
+async def upload_case_document(
+    aura_id: str,
+    file: UploadFile = File(...),
+    label: Optional[str] = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """The victim themselves, or an authorised counsellor/admin, attaches a
+    file to the case: an FIR copy, medical report, ID proof, and similar.
+    Contents are never inspected - this is a tracking record, not a document
+    analysis feature."""
+    if not can_access_victim(user, aura_id, db):
+        raise HTTPException(status_code=403, detail="Not authorised for this case.")
+    if file.content_type not in _ALLOWED_DOCUMENT_TYPES:
+        raise HTTPException(status_code=400, detail="Unsupported file type. Allowed: PDF, JPG, PNG, WEBP, DOC, DOCX.")
+
+    contents = await file.read()
+    if len(contents) > _MAX_DOCUMENT_BYTES:
+        raise HTTPException(status_code=400, detail="File too large (max 15 MB).")
+
+    suffix = Path(file.filename or "").suffix[:10]
+    stored_name = f"{secrets.token_hex(24)}{suffix}"
+    (CASE_DOCUMENTS_DIR / stored_name).write_bytes(contents)
+
+    row = CaseDocument(
+        aura_id=aura_id,
+        original_name=(file.filename or "document")[:255],
+        stored_name=stored_name,
+        content_type=file.content_type,
+        size_bytes=len(contents),
+        label=(label or None),
+        uploaded_by_user_id=user.id,
+        uploaded_by_role=user.role,
+    )
+    db.add(row)
+    db.add(
+        AuditLog(
+            actor_id=user.id,
+            actor_role=user.role,
+            action="case_document_uploaded",
+            resource="case_document",
+            resource_id=aura_id,
+            reason=row.original_name,
+        )
+    )
+    db.commit()
+    return {
+        "success": True,
+        "document": {
+            "id": row.id,
+            "name": row.original_name,
+            "label": row.label,
+            "content_type": row.content_type,
+            "size_bytes": row.size_bytes,
+            "uploaded_by_role": row.uploaded_by_role,
+            "created_at": row.created_at.isoformat(),
+        },
+    }
+
+
+@router.get("/case-documents/{aura_id}/{document_id}/download")
+async def download_case_document(
+    aura_id: str,
+    document_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if not can_access_victim(user, aura_id, db):
+        raise HTTPException(status_code=403, detail="Not authorised for this case.")
+    row = (
+        db.query(CaseDocument)
+        .filter(CaseDocument.id == document_id, CaseDocument.aura_id == aura_id)
+        .first()
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    path = CASE_DOCUMENTS_DIR / row.stored_name
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Document file is missing on the server.")
+    return FileResponse(path, media_type=row.content_type, filename=row.original_name)
+
+
+@router.delete("/case-documents/{aura_id}/{document_id}")
+async def delete_case_document(
+    aura_id: str,
+    document_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Only the person who uploaded a document, or an admin, can remove it -
+    a counsellor shouldn't be able to delete a document another counsellor
+    or the victim attached."""
+    if not can_access_victim(user, aura_id, db):
+        raise HTTPException(status_code=403, detail="Not authorised for this case.")
+    row = (
+        db.query(CaseDocument)
+        .filter(CaseDocument.id == document_id, CaseDocument.aura_id == aura_id)
+        .first()
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    if row.uploaded_by_user_id != user.id and user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only the uploader or an admin can remove this document.")
+    path = CASE_DOCUMENTS_DIR / row.stored_name
+    path.unlink(missing_ok=True)
+    db.add(
+        AuditLog(
+            actor_id=user.id,
+            actor_role=user.role,
+            action="case_document_deleted",
+            resource="case_document",
+            resource_id=aura_id,
+            reason=row.original_name,
+        )
+    )
+    db.delete(row)
+    db.commit()
+    return {"success": True}
 
 
 @router.get("/checkin/questions")
