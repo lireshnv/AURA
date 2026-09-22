@@ -39,7 +39,7 @@ export default function AvatarViewer({ interactive = true, ...props }: Props) {
 
   return (
     <div className="w-full h-full rounded-2xl overflow-hidden bg-gradient-to-b from-surface-container-low to-surface-container-lowest">
-      <Canvas shadows camera={{ position: [0, 0.15, 3.1], fov: 32 }} dpr={[1, 2]}>
+      <Canvas shadows camera={{ position: [0, -0.15, 3.7], fov: 34 }} dpr={[1, 2]}>
         {/* Local lighting only - no HDRI/network fetch, so the viewer never
             hangs on a blocked or slow request. */}
         <hemisphereLight intensity={0.6} color="#f5f3ff" groundColor="#2b2033" />
@@ -55,17 +55,17 @@ export default function AvatarViewer({ interactive = true, ...props }: Props) {
         <pointLight position={[0, 1.5, 2]} intensity={0.3} color="#ffffff" />
         <Suspense fallback={<FallbackModel {...props} onError={undefined} />}>
           <SceneAvatar {...props} key={loadFailed ? "fallback" : props.avatarType} onError={() => setLoadFailed(true)} />
-          <ContactShadows position={[0, -1.15, 0]} opacity={0.35} scale={4} blur={2.4} far={2} />
+          <ContactShadows position={[0, -1.68, 0]} opacity={0.35} scale={4.5} blur={2.4} far={2} />
         </Suspense>
         {interactive && (
           <OrbitControls
             enablePan={false}
             enableZoom={true}
-            minDistance={2}
-            maxDistance={4.5}
+            minDistance={2.4}
+            maxDistance={5.2}
             minPolarAngle={Math.PI / 2.6}
             maxPolarAngle={Math.PI / 1.9}
-            target={[0, 0.1, 0]}
+            target={[0, -0.15, 0]}
           />
         )}
       </Canvas>

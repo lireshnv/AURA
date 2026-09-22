@@ -9,6 +9,7 @@ import {
   LifeBuoy,
   Info,
   Volume2,
+  VolumeX,
   Bone,
   Droplets,
   HeartHandshake,
@@ -60,6 +61,8 @@ export function renderMarkdown(text: string): string {
     .replace(/\n{2,}/g, '</p><p class="mt-2">')
     .replace(/\n/g, "<br/>")
 }
+
+const SOUND_KEY = "aura-companion-sound"
 
 /** A tiny synthesized chirp (no audio asset) for a pet/feed/check-in
  * reaction - shared AudioContext so repeated taps don't leak nodes. */
@@ -130,6 +133,25 @@ export default function AICompanion() {
   const [pokeReaction, setPokeReaction] = useState<AvatarAnimationState | null>(null)
   const [petting, setPetting] = useState(false)
   const [expression, setExpression] = useState<Expression>("natural")
+  const [soundOn, setSoundOn] = useState(() => {
+    try {
+      return localStorage.getItem(SOUND_KEY) !== "off"
+    } catch {
+      return true
+    }
+  })
+
+  const toggleSound = () => {
+    setSoundOn((v) => {
+      const next = !v
+      try {
+        localStorage.setItem(SOUND_KEY, next ? "on" : "off")
+      } catch {
+        /* preference just won't persist */
+      }
+      return next
+    })
+  }
 
   const { avatarType } = useAvatarIdentity()
   const isPlant = avatarType === "plant"
@@ -256,7 +278,7 @@ export default function AICompanion() {
   const effectiveAnimation: AvatarAnimationState = petting ? "greeting" : pokeReaction ?? avatarAnimation
 
   const poke = () => {
-    playBoop()
+    if (soundOn) playBoop()
     if (pokeReaction) return
     setPokeReaction("greeting")
     window.setTimeout(() => setPokeReaction(null), 1600)
@@ -264,11 +286,23 @@ export default function AICompanion() {
 
   const startPetting = () => {
     setPetting(true)
-    playBoop(520)
+    if (soundOn) playBoop(520)
   }
   const stopPetting = () => setPetting(false)
 
   const lastAssistantMessage = [...messages].reverse().find((m) => m.role === "assistant")
+
+  // A real, data-driven nudge (not a fake streak/gamification prompt) - only
+  // shown when today's check-in genuinely hasn't happened yet.
+  const needsCheckinToday = !!careSummary && careSummary.consent && !careSummary.today.checkin
+  const statusText =
+    messages.length === 0
+      ? needsCheckinToday
+        ? "Haven't checked in today - tap Check-in below, or just say hello"
+        : "Say hello, or tap your companion"
+      : lastAssistantMessage?.content
+      ? ""
+      : "Listening…"
 
   return (
     <div className="space-y-4">
@@ -324,9 +358,7 @@ export default function AICompanion() {
       {/* Companion stage: the avatar leads, the chat log lives underneath it */}
       <section className="rounded-[24px] bg-surface-container-lowest border border-outline-variant overflow-hidden">
         <div className="px-5 pt-4 pb-1 flex items-center justify-between gap-3">
-          <p className="text-sm font-semibold text-on-surface">
-            {messages.length === 0 ? "Say hello, or tap your companion" : lastAssistantMessage?.content ? "" : "Listening…"}
-          </p>
+          <p className="text-sm font-semibold text-on-surface">{statusText}</p>
           <div className="flex items-center gap-2 shrink-0">
             {!isPlant && careSummary && careSummary.care_streak_days > 0 && (
               <span className="flex items-center gap-1 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
@@ -335,6 +367,13 @@ export default function AICompanion() {
               </span>
             )}
             <p className="text-[11px] text-on-surface-variant capitalize">{effectiveAnimation}</p>
+            <button
+              onClick={toggleSound}
+              title={soundOn ? "Mute companion sounds" : "Unmute companion sounds"}
+              className="w-6 h-6 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-surface-container-high"
+            >
+              {soundOn ? <Volume2 size={13} /> : <VolumeX size={13} />}
+            </button>
           </div>
         </div>
 
@@ -353,7 +392,7 @@ export default function AICompanion() {
                 poke()
               }
             }}
-            className="w-full h-72 md:h-96 px-4 pb-2 cursor-pointer"
+            className="w-full h-80 md:h-[28rem] px-5 pb-2 cursor-pointer"
           >
             <AvatarModule
               drivenAnimation={effectiveAnimation}
@@ -368,7 +407,7 @@ export default function AICompanion() {
 
         {/* Purely playful - lets you set how the companion looks, with no
             effect on the app's actual data or state. */}
-        <div className="flex items-center gap-1.5 px-5 pb-3">
+        <div className="flex items-center gap-1.5 px-5 pt-1 pb-3">
           {EXPRESSION_PICKS.map((p) => (
             <button
               key={p.value}
@@ -399,6 +438,11 @@ export default function AICompanion() {
 
         {/* Play with your companion: feed/water, check-in, an activity */}
         <div className="grid grid-cols-3 gap-2 px-5 pb-4">
+          {needsCheckinToday && (
+            <span className="col-span-3 -mt-1 mb-0.5 text-[10px] text-on-surface-variant">
+              Today's check-in is still open
+            </span>
+          )}
           {isPlant ? (
             <button
               onClick={() => doCareAction("water")}

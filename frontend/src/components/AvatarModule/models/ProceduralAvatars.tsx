@@ -119,64 +119,76 @@ export function DogModel({ expression, animation, amplitude, lipSyncEnabled }: A
     if (earR.current) earR.current.rotation.z = -0.15 - Math.sin(t * 2.4 + 0.5) * 0.06
   })
 
-  // A round, big-eyed "chibi" puppy - warm and soft rather than a realistic
-  // dog, since a cute mascot reads better at small sizes and holds up under
-  // heavy stylization (blink/lip-sync) without looking uncanny.
+  // A sitting puppy with a real body, haunches, legs and a tail - stylised
+  // and deliberately not anatomically accurate, but a dog at a glance
+  // rather than a floating head with ears stuck on.
   return (
     <IdleBob groupRef={group}>
-      <mesh position={[0, -0.55, 0]} scale={[0.85, 0.7, 0.8]} castShadow>
-        <sphereGeometry args={[0.65, 32, 32]} />
-        <meshStandardMaterial color="#f6c98a" roughness={0.65} />
+      <mesh position={[0, -0.62, -0.05]} scale={[0.95, 0.85, 0.9]} castShadow>
+        <sphereGeometry args={[0.62, 28, 28]} />
+        <meshStandardMaterial color="#f0bd7c" roughness={0.7} />
       </mesh>
-      <mesh position={[0, 0.15, 0]} scale={[1, 0.95, 0.95]} castShadow>
-        <sphereGeometry args={[0.85, 32, 32]} />
+      <mesh position={[-0.5, -1.05, -0.25]} scale={[0.55, 0.65, 0.6]} castShadow>
+        <sphereGeometry args={[0.4, 20, 20]} />
+        <meshStandardMaterial color="#eeb877" roughness={0.75} />
+      </mesh>
+      <mesh position={[0.5, -1.05, -0.25]} scale={[0.55, 0.65, 0.6]} castShadow>
+        <sphereGeometry args={[0.4, 20, 20]} />
+        <meshStandardMaterial color="#eeb877" roughness={0.75} />
+      </mesh>
+      {[-0.32, 0.32].map((x) => (
+        <group key={x}>
+          <mesh position={[x, -1.15, 0.42]} castShadow>
+            <capsuleGeometry args={[0.1, 0.5, 4, 8]} />
+            <meshStandardMaterial color="#f0bd7c" roughness={0.7} />
+          </mesh>
+          <mesh position={[x, -1.5, 0.5]} scale={[1, 0.7, 1.15]} castShadow>
+            <sphereGeometry args={[0.12, 14, 14]} />
+            <meshStandardMaterial color="#fdeacb" roughness={0.7} />
+          </mesh>
+        </group>
+      ))}
+      <mesh position={[0, 0.35, 0.1]} scale={[1, 0.95, 0.95]} castShadow>
+        <sphereGeometry args={[0.78, 32, 32]} />
         <meshStandardMaterial color="#f9d7a3" roughness={0.6} />
       </mesh>
-      <mesh position={[0, -0.05, 0.72]} scale={[0.5, 0.36, 0.4]} castShadow>
-        <sphereGeometry args={[0.5, 24, 24]} />
+      <mesh position={[0, 0.18, 0.82]} scale={[0.46, 0.34, 0.42]} castShadow>
+        <sphereGeometry args={[0.48, 24, 24]} />
         <meshStandardMaterial color="#fdeacb" roughness={0.6} />
       </mesh>
-      <mesh position={[0, 0.02, 1.05]} castShadow>
-        <sphereGeometry args={[0.09, 16, 16]} />
+      <mesh position={[0, 0.24, 1.15]} castShadow>
+        <sphereGeometry args={[0.085, 16, 16]} />
         <meshStandardMaterial color="#3c2a1a" roughness={0.4} />
       </mesh>
-      <mesh ref={eyeL} position={[-0.27, 0.28, 0.78]}>
-        <sphereGeometry args={[0.13, 16, 16]} />
+      <mesh ref={eyeL} position={[-0.26, 0.48, 0.88]}>
+        <sphereGeometry args={[0.125, 16, 16]} />
         <meshStandardMaterial color="#2b1a0e" roughness={0.3} />
       </mesh>
-      <EyeShine position={[-0.31, 0.33, 0.87]} />
-      <mesh ref={eyeR} position={[0.27, 0.28, 0.78]}>
-        <sphereGeometry args={[0.13, 16, 16]} />
+      <EyeShine position={[-0.3, 0.53, 0.96]} />
+      <mesh ref={eyeR} position={[0.26, 0.48, 0.88]}>
+        <sphereGeometry args={[0.125, 16, 16]} />
         <meshStandardMaterial color="#2b1a0e" roughness={0.3} />
       </mesh>
-      <EyeShine position={[0.23, 0.33, 0.87]} />
-      <BlushCheeks y={0.02} z={0.75} spread={0.42} />
-      <mesh ref={mouth} position={[0, -0.14, 0.98]} rotation={[0, 0, Math.PI / 2]}>
+      <EyeShine position={[0.22, 0.53, 0.96]} />
+      <BlushCheeks y={0.2} z={0.85} spread={0.42} />
+      <mesh ref={mouth} position={[0, 0.06, 1.08]} rotation={[0, 0, Math.PI / 2]}>
         <capsuleGeometry args={[0.045, 0.1, 4, 8]} />
         <meshStandardMaterial color="#c2528f" roughness={0.5} />
       </mesh>
-      <mesh ref={earL} position={[-0.62, 0.55, 0.1]} rotation={[0.1, 0, 0.5]} castShadow>
-        <sphereGeometry args={[0.28, 20, 20]} />
+      <mesh ref={earL} position={[-0.62, 0.75, 0.15]} rotation={[0.1, 0, 0.5]} castShadow>
+        <sphereGeometry args={[0.26, 20, 20]} />
         <meshStandardMaterial color="#e8ab68" roughness={0.75} />
       </mesh>
-      <mesh ref={earR} position={[0.62, 0.55, 0.1]} rotation={[0.1, 0, -0.5]} castShadow>
-        <sphereGeometry args={[0.28, 20, 20]} />
+      <mesh ref={earR} position={[0.62, 0.75, 0.15]} rotation={[0.1, 0, -0.5]} castShadow>
+        <sphereGeometry args={[0.26, 20, 20]} />
         <meshStandardMaterial color="#e8ab68" roughness={0.75} />
       </mesh>
-      <mesh position={[-0.42, -1.15, 0.55]} scale={[1, 0.7, 1]} castShadow>
-        <sphereGeometry args={[0.22, 16, 16]} />
-        <meshStandardMaterial color="#f6c98a" roughness={0.7} />
-      </mesh>
-      <mesh position={[0.42, -1.15, 0.55]} scale={[1, 0.7, 1]} castShadow>
-        <sphereGeometry args={[0.22, 16, 16]} />
-        <meshStandardMaterial color="#f6c98a" roughness={0.7} />
-      </mesh>
-      <group ref={tail} position={[0, -0.5, -0.7]} rotation={[0.7, 0, 0]}>
+      <group ref={tail} position={[0, -0.55, -0.65]} rotation={[-1, 0, 0.15]}>
         <mesh castShadow>
-          <cylinderGeometry args={[0.07, 0.1, 0.5, 12]} />
-          <meshStandardMaterial color="#f6c98a" roughness={0.75} />
+          <cylinderGeometry args={[0.07, 0.1, 0.55, 12]} />
+          <meshStandardMaterial color="#f0bd7c" roughness={0.75} />
         </mesh>
-        <mesh position={[0, 0.3, 0]} castShadow>
+        <mesh position={[0, 0.32, 0]} castShadow>
           <sphereGeometry args={[0.13, 16, 16]} />
           <meshStandardMaterial color="#fdeacb" roughness={0.75} />
         </mesh>
@@ -199,58 +211,81 @@ export function CatModel({ expression, animation, amplitude, lipSyncEnabled }: A
     if (tail.current) tail.current.rotation.y = Math.sin(t * 1.5) * 0.4
   })
 
+  // A sitting cat, same "full body, not just a head" treatment as the
+  // puppy: slimmer torso, tucked-in front paws and a tail wrapped forward.
   return (
     <IdleBob groupRef={group}>
-      <mesh position={[0, -0.5, 0]} scale={[0.8, 0.65, 0.75]} castShadow>
-        <sphereGeometry args={[0.65, 32, 32]} />
+      <mesh position={[0, -0.6, -0.05]} scale={[0.82, 0.9, 0.85]} castShadow>
+        <sphereGeometry args={[0.6, 28, 28]} />
         <meshStandardMaterial color="#9a8fb0" roughness={0.7} />
       </mesh>
-      <mesh position={[0, 0.15, 0]} scale={[1, 0.92, 0.92]} castShadow>
-        <sphereGeometry args={[0.82, 32, 32]} />
+      <mesh position={[-0.42, -1.05, -0.15]} scale={[0.42, 0.6, 0.5]} castShadow>
+        <sphereGeometry args={[0.36, 20, 20]} />
+        <meshStandardMaterial color="#a397b8" roughness={0.75} />
+      </mesh>
+      <mesh position={[0.42, -1.05, -0.15]} scale={[0.42, 0.6, 0.5]} castShadow>
+        <sphereGeometry args={[0.36, 20, 20]} />
+        <meshStandardMaterial color="#a397b8" roughness={0.75} />
+      </mesh>
+      {[-0.28, 0.28].map((x) => (
+        <group key={x}>
+          <mesh position={[x, -1.12, 0.4]} castShadow>
+            <capsuleGeometry args={[0.085, 0.42, 4, 8]} />
+            <meshStandardMaterial color="#9a8fb0" roughness={0.7} />
+          </mesh>
+          <mesh position={[x, -1.4, 0.46]} scale={[1, 0.65, 1.1]} castShadow>
+            <sphereGeometry args={[0.1, 14, 14]} />
+            <meshStandardMaterial color="#ada2c4" roughness={0.7} />
+          </mesh>
+        </group>
+      ))}
+      <mesh position={[0, 0.35, 0.1]} scale={[1, 0.9, 0.9]} castShadow>
+        <sphereGeometry args={[0.72, 32, 32]} />
         <meshStandardMaterial color="#ada2c4" roughness={0.65} />
       </mesh>
-      <mesh position={[-0.26, 0.65, 0.35]} rotation={[0, 0, 0.25]} castShadow>
-        <coneGeometry args={[0.16, 0.34, 4]} />
+      <mesh position={[-0.48, 0.8, 0.24]} rotation={[0, 0, 0.35]} castShadow>
+        <coneGeometry args={[0.17, 0.36, 4]} />
         <meshStandardMaterial color="#9a8fb0" roughness={0.7} />
       </mesh>
-      <mesh position={[0.26, 0.65, 0.35]} rotation={[0, 0, -0.25]} castShadow>
-        <coneGeometry args={[0.16, 0.34, 4]} />
+      <mesh position={[0.48, 0.8, 0.24]} rotation={[0, 0, -0.35]} castShadow>
+        <coneGeometry args={[0.17, 0.36, 4]} />
         <meshStandardMaterial color="#9a8fb0" roughness={0.7} />
       </mesh>
-      <mesh position={[-0.26, 0.6, 0.42]} rotation={[0, 0, 0.25]}>
-        <coneGeometry args={[0.09, 0.18, 4]} />
+      <mesh position={[-0.45, 0.75, 0.3]} rotation={[0, 0, 0.35]}>
+        <coneGeometry args={[0.095, 0.19, 4]} />
         <meshStandardMaterial color="#f4c2d9" roughness={0.7} />
       </mesh>
-      <mesh position={[0.26, 0.6, 0.42]} rotation={[0, 0, -0.25]}>
-        <coneGeometry args={[0.09, 0.18, 4]} />
+      <mesh position={[0.45, 0.75, 0.3]} rotation={[0, 0, -0.35]}>
+        <coneGeometry args={[0.095, 0.19, 4]} />
         <meshStandardMaterial color="#f4c2d9" roughness={0.7} />
       </mesh>
-      <mesh ref={eyeL} position={[-0.26, 0.24, 0.72]}>
-        <sphereGeometry args={[0.13, 16, 16]} />
+      <mesh ref={eyeL} position={[-0.24, 0.44, 0.82]}>
+        <sphereGeometry args={[0.12, 16, 16]} />
         <meshStandardMaterial color="#8fd94a" emissive="#3d5a1e" emissiveIntensity={0.25} roughness={0.3} />
       </mesh>
-      <EyeShine position={[-0.3, 0.29, 0.81]} />
-      <mesh ref={eyeR} position={[0.26, 0.24, 0.72]}>
-        <sphereGeometry args={[0.13, 16, 16]} />
+      <EyeShine position={[-0.28, 0.49, 0.9]} />
+      <mesh ref={eyeR} position={[0.24, 0.44, 0.82]}>
+        <sphereGeometry args={[0.12, 16, 16]} />
         <meshStandardMaterial color="#8fd94a" emissive="#3d5a1e" emissiveIntensity={0.25} roughness={0.3} />
       </mesh>
-      <EyeShine position={[0.22, 0.29, 0.81]} />
-      <BlushCheeks y={0.0} z={0.7} spread={0.4} color="#f4c2d9" />
-      <mesh position={[0, -0.03, 0.86]} rotation={[Math.PI, 0, 0]} castShadow>
+      <EyeShine position={[0.2, 0.49, 0.9]} />
+      <BlushCheeks y={0.2} z={0.78} spread={0.38} color="#f4c2d9" />
+      <mesh position={[0, 0.17, 0.95]} rotation={[Math.PI, 0, 0]} castShadow>
         <coneGeometry args={[0.06, 0.08, 4]} />
         <meshStandardMaterial color="#e88fb0" roughness={0.5} />
       </mesh>
-      <mesh ref={mouth} position={[0, -0.15, 0.85]} rotation={[0, 0, Math.PI / 2]}>
+      <mesh ref={mouth} position={[0, 0.05, 0.94]} rotation={[0, 0, Math.PI / 2]}>
         <capsuleGeometry args={[0.04, 0.09, 4, 8]} />
         <meshStandardMaterial color="#6a5a6a" roughness={0.5} />
       </mesh>
-      <group ref={tail} position={[0, -0.4, -0.65]} rotation={[0.9, 0, 0]}>
+      {/* tail wraps forward around the front paws, a classic seated-cat tell */}
+      <group ref={tail} position={[0.45, -1.1, 0.1]} rotation={[0, 0.6, 0]}>
         <mesh castShadow>
-          <cylinderGeometry args={[0.06, 0.09, 0.65, 12]} />
+          <cylinderGeometry args={[0.06, 0.09, 0.6, 12]} />
           <meshStandardMaterial color="#9a8fb0" roughness={0.7} />
         </mesh>
-        <mesh position={[0, 0.35, 0]} castShadow>
-          <sphereGeometry args={[0.1, 16, 16]} />
+        <mesh position={[0, 0.32, 0]} rotation={[0, 0, 0.9]} castShadow>
+          <cylinderGeometry args={[0.055, 0.06, 0.35, 12]} />
           <meshStandardMaterial color="#ada2c4" roughness={0.7} />
         </mesh>
       </group>
