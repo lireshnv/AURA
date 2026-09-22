@@ -6,9 +6,9 @@ const IDENTITY_EVENT = "aura-avatar-identity-change"
 
 function readType(): AvatarType {
   try {
-    return (localStorage.getItem(TYPE_KEY) as AvatarType) || "dog"
+    return (localStorage.getItem(TYPE_KEY) as AvatarType) || "fox"
   } catch {
-    return "dog"
+    return "fox"
   }
 }
 

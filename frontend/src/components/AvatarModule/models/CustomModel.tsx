@@ -2,10 +2,11 @@ import { Component, ReactNode, useEffect, useMemo, useRef } from "react"
 import { useGLTF } from "@react-three/drei"
 import { useFrame } from "@react-three/fiber"
 import * as THREE from "three"
+import { SkeletonUtils } from "three-stdlib"
 import { AvatarRenderProps } from "../types"
 import { PlantModel } from "./ProceduralAvatars"
 
-class ModelErrorBoundary extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
+export class ModelErrorBoundary extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
   state = { failed: false }
   static getDerivedStateFromError() {
     return { failed: true }
@@ -19,7 +20,11 @@ class ModelErrorBoundary extends Component<{ fallback: ReactNode; children: Reac
  * Any morph targets it has are driven the same way as the human avatar's. */
 function UploadedModel({ url, animation, amplitude, lipSyncEnabled }: AvatarRenderProps & { url: string }) {
   const { scene } = useGLTF(url)
-  const cloned = useMemo(() => scene.clone(true), [scene])
+  // Plain Object3D.clone() doesn't rebind a SkinnedMesh's skeleton to the
+  // cloned bones (it keeps the shared cached scene's original bones), which
+  // corrupts skinning for any rigged upload - SkeletonUtils.clone() rewires
+  // the skin binding correctly. Harmless no-op for a non-rigged model.
+  const cloned = useMemo(() => SkeletonUtils.clone(scene), [scene])
   const meshesWithMorphs = useRef<THREE.Mesh[]>([])
 
   const { centered, scale } = useMemo(() => {

@@ -63,6 +63,7 @@ export function renderMarkdown(text: string): string {
 }
 
 const SOUND_KEY = "aura-companion-sound"
+const PARTIAL_MESSAGE_COUNT = 3
 
 /** A tiny synthesized chirp (no audio asset) for a pet/feed/check-in
  * reaction - shared AudioContext so repeated taps don't leak nodes. */
@@ -85,13 +86,6 @@ function playBoop(freq = 660) {
     /* best-effort - a silent companion is still a working one */
   }
 }
-
-const EXPRESSION_PICKS: { value: Expression; emoji: string; label: string }[] = [
-  { value: "natural", emoji: "🙂", label: "Natural" },
-  { value: "happy", emoji: "😄", label: "Happy" },
-  { value: "calm", emoji: "😌", label: "Calm" },
-  { value: "surprised", emoji: "😮", label: "Surprised" },
-]
 
 export function SafetyPanel({ safety }: { safety: SafetyBlock }) {
   const urgent = safety.severity === "urgent"
@@ -392,36 +386,18 @@ export default function AICompanion() {
                 poke()
               }
             }}
-            className="w-full h-80 md:h-[28rem] px-5 pb-2 cursor-pointer"
+            className="w-full h-[30rem] md:h-[34rem] px-5 pb-3 cursor-pointer"
           >
             <AvatarModule
               drivenAnimation={effectiveAnimation}
               expression={expression}
+              onExpressionChange={setExpression}
               compact
               showSwitcher
               interactive
             />
           </div>
           {carePanel && <CareReactionPanel kind={carePanel} onDone={() => setCarePanel(null)} />}
-        </div>
-
-        {/* Purely playful - lets you set how the companion looks, with no
-            effect on the app's actual data or state. */}
-        <div className="flex items-center gap-1.5 px-5 pt-1 pb-3">
-          {EXPRESSION_PICKS.map((p) => (
-            <button
-              key={p.value}
-              onClick={() => setExpression(p.value)}
-              title={p.label}
-              className={`w-8 h-8 rounded-full flex items-center justify-center text-base transition-colors ${
-                expression === p.value
-                  ? "bg-primary-container/25 ring-2 ring-primary"
-                  : "hover:bg-surface-container-high"
-              }`}
-            >
-              {p.emoji}
-            </button>
-          ))}
         </div>
 
         {careSummary && !careSummary.consent && (
@@ -477,67 +453,59 @@ export default function AICompanion() {
           </button>
         </div>
 
-        {!showTranscript && lastAssistantMessage && (
-          <div className="px-5 pb-3">
-            <p className="text-xs text-on-surface-variant italic line-clamp-2">
-              "{lastAssistantMessage.content.replace(/[*`_]/g, "").slice(0, 220)}"
+        {messages.length === 0 ? (
+          <div className="px-5 pb-4">
+            <p className="text-xs text-on-surface-variant text-center">
+              Start a conversation with AURA. There's no right way to begin, and you can stop at any time.
             </p>
           </div>
-        )}
-
-        <button
-          onClick={() => setShowTranscript((v) => !v)}
-          className="w-full text-center text-[11px] font-medium text-primary py-2.5 border-t border-outline-variant hover:bg-surface-container-high"
-        >
-          {showTranscript ? "Hide conversation" : `View conversation${messages.length ? ` (${messages.length})` : ""}`}
-        </button>
-
-        {showTranscript && (
-          <div ref={scrollRef} className="max-h-72 overflow-y-auto px-5 py-4 border-t border-outline-variant">
-            {messages.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-center px-6 py-8">
-                <p className="text-sm text-on-surface-variant max-w-sm">
-                  Start a conversation with AURA. There's no right way to begin, and you
-                  can stop at any time.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {messages.map((m, i) => (
-                  <div key={i}>
-                    {m.role === "user" ? (
-                      <div className="flex justify-end">
-                        <div className="max-w-[80%] rounded-2xl rounded-br-sm bg-primary text-on-primary px-4 py-2.5 text-sm whitespace-pre-wrap">
-                          {m.content}
-                        </div>
+        ) : (
+          <div ref={showTranscript ? undefined : scrollRef} className="px-5 py-3 border-t border-outline-variant space-y-3 max-h-56 overflow-y-auto">
+            {(showTranscript ? messages : messages.slice(-PARTIAL_MESSAGE_COUNT)).map((m, i) => {
+              const realIndex = showTranscript ? i : messages.length - Math.min(messages.length, PARTIAL_MESSAGE_COUNT) + i
+              return (
+                <div key={realIndex}>
+                  {m.role === "user" ? (
+                    <div className="flex justify-end">
+                      <div className="max-w-[80%] rounded-2xl rounded-br-sm bg-primary text-on-primary px-4 py-2.5 text-sm whitespace-pre-wrap">
+                        {m.content}
                       </div>
-                    ) : (
-                      <div className="flex gap-3">
-                        <div className="w-7 h-7 rounded-full bg-primary-container/10 border border-primary/20 flex items-center justify-center shrink-0 mt-0.5">
-                          <span className="text-primary font-bold text-[11px]">A</span>
-                        </div>
-                        <div
-                          className="max-w-[85%] text-sm text-on-surface-variant leading-relaxed [&_strong]:text-on-surface [&_li]:my-0.5"
-                          dangerouslySetInnerHTML={{
-                            __html: `<p>${renderMarkdown(m.content)}</p>`,
-                          }}
-                        />
-                      </div>
-                    )}
-                    {safetyBlocks[i] && <SafetyPanel safety={safetyBlocks[i]} />}
-                  </div>
-                ))}
-                {sending && (
-                  <div className="flex gap-3 items-center">
-                    <div className="w-7 h-7 rounded-full bg-primary-container/10 border border-primary/20 flex items-center justify-center shrink-0">
-                      <span className="text-primary font-bold text-[11px]">A</span>
                     </div>
-                    <span className="text-xs text-on-surface-variant italic">AURA is typing…</span>
-                  </div>
-                )}
+                  ) : (
+                    <div className="flex gap-3">
+                      <div className="w-7 h-7 rounded-full bg-primary-container/10 border border-primary/20 flex items-center justify-center shrink-0 mt-0.5">
+                        <span className="text-primary font-bold text-[11px]">A</span>
+                      </div>
+                      <div
+                        className="max-w-[85%] text-sm text-on-surface-variant leading-relaxed [&_strong]:text-on-surface [&_li]:my-0.5"
+                        dangerouslySetInnerHTML={{
+                          __html: `<p>${renderMarkdown(m.content)}</p>`,
+                        }}
+                      />
+                    </div>
+                  )}
+                  {safetyBlocks[realIndex] && <SafetyPanel safety={safetyBlocks[realIndex]} />}
+                </div>
+              )
+            })}
+            {sending && (
+              <div className="flex gap-3 items-center">
+                <div className="w-7 h-7 rounded-full bg-primary-container/10 border border-primary/20 flex items-center justify-center shrink-0">
+                  <span className="text-primary font-bold text-[11px]">A</span>
+                </div>
+                <span className="text-xs text-on-surface-variant italic">AURA is typing…</span>
               </div>
             )}
           </div>
+        )}
+
+        {messages.length > PARTIAL_MESSAGE_COUNT && (
+          <button
+            onClick={() => setShowTranscript((v) => !v)}
+            className="w-full text-center text-[11px] font-medium text-primary py-2 border-t border-outline-variant hover:bg-surface-container-high"
+          >
+            {showTranscript ? "Show less" : `View full conversation (${messages.length})`}
+          </button>
         )}
       </section>
 

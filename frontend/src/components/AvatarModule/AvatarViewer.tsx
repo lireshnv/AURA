@@ -2,7 +2,8 @@ import { Suspense, useState } from "react"
 import { Canvas } from "@react-three/fiber"
 import { ContactShadows, OrbitControls } from "@react-three/drei"
 import { AvatarRenderProps, AvatarType } from "./types"
-import CustomModel from "./models/CustomModel"
+import CustomModel, { ModelErrorBoundary } from "./models/CustomModel"
+import FoxModel from "./models/FoxModel"
 import { DogModel, CatModel, RobotModel, PlantModel, FallbackModel } from "./models/ProceduralAvatars"
 
 interface Props extends AvatarRenderProps {
@@ -15,6 +16,12 @@ interface Props extends AvatarRenderProps {
 
 function SceneAvatar({ avatarType, customGlbUrl, ...render }: Props) {
   switch (avatarType) {
+    case "fox":
+      return (
+        <ModelErrorBoundary fallback={<DogModel {...render} />}>
+          <FoxModel {...render} />
+        </ModelErrorBoundary>
+      )
     case "dog":
       return <DogModel {...render} />
     case "cat":

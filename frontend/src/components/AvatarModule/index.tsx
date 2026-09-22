@@ -42,9 +42,10 @@ export default function AvatarModule({
   /** Overrides the default (drag-to-rotate only outside compact mode) so a
    * compact viewer can still be a hands-on toy, e.g. on AI Companion. */
   interactive?: boolean
-  /** Compact-mode-only: shows a small "change companion" control (+ the
-   * custom-model uploader when Custom is picked) under the viewer, without
-   * pulling in the full dropdown/expression/lip-sync panel below it. */
+  /** Compact-mode-only: shows the full labeled customization stack (avatar
+   * type, expression, animation override, lip sync, + the custom-model
+   * uploader) under the viewer, the same controls as the full panel below,
+   * just without its separate heading/big viewer. */
   showSwitcher?: boolean
   /** Lets a host drive expression itself (e.g. a playful emoji picker on AI
    * Companion) instead of the module's own internal state. */
@@ -80,11 +81,14 @@ export default function AvatarModule({
         <div className="flex-1 min-h-0 rounded-2xl overflow-hidden">{viewer}</div>
         {showSwitcher && (
           <div
-            className="shrink-0 flex items-center justify-between gap-2"
+            className="shrink-0 flex flex-col gap-2"
             onClick={(e) => e.stopPropagation()}
             onPointerDown={(e) => e.stopPropagation()}
           >
             <AvatarTypeDropdown value={avatarType} onChange={setAvatarType} />
+            <ExpressionSelector value={expression} onChange={setExpression} />
+            <AnimationSelector value={animationSelection} onChange={setAnimationSelection} />
+            <LipSyncController enabled={lipSyncEnabled} onChange={setLipSyncEnabled} />
             {avatarType === "custom" && (
               <CustomizeButton avatarType={avatarType} onCustomAvatarUploaded={setCustomGlbUrl} />
             )}

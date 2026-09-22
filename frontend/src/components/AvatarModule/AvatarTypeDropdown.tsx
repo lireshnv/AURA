@@ -1,6 +1,7 @@
 import { AvatarType } from "./types"
 
 const OPTIONS: { value: AvatarType; label: string }[] = [
+  { value: "fox", label: "Fox (3D)" },
   { value: "dog", label: "Dog" },
   { value: "cat", label: "Cat" },
   { value: "robot", label: "Robot" },
