@@ -1222,6 +1222,7 @@ export default function App() {
                 onOpenCheckin={handleOpenCheckin}
                 onOpenCompanion={() => setPage("companion")}
                 onOpenWellbeing={() => setPage("insights")}
+                onOpenSupport={() => setPage("support")}
               />
             )}
             {page === "checkin" && (

@@ -91,12 +91,14 @@ export default function VictimHome({
   onOpenCheckin,
   onOpenCompanion,
   onOpenWellbeing,
+  onOpenSupport,
 }: {
   auraId: string
   onOpenAnalysis: () => void
   onOpenCheckin: () => void
   onOpenCompanion: () => void
   onOpenWellbeing: () => void
+  onOpenSupport: () => void
 }) {
   const [data, setData] = useState<TwinResponse | null>(null)
   const [wellbeingSeries, setWellbeingSeries] = useState<TrendSeriesPoint[]>([])
@@ -112,6 +114,11 @@ export default function VictimHome({
 
   const pattern = data?.pattern_label ?? "Still learning your usual pattern"
   const twin = data?.twin
+  // Same underlying signal the counsellor/admin views call "escalation
+  // risk", but never shown here as a score or a clinical label - just a
+  // gentle, supportive nudge toward Support, matching this page's
+  // deliberately non-clinical framing throughout.
+  const showSupportNudge = twin?.escalation_risk.available && twin.escalation_risk.level === "high"
 
   return (
     <div className="flex flex-col items-center text-center gap-stack-lg -mt-stack-sm">
@@ -158,6 +165,23 @@ export default function VictimHome({
           This describes a pattern in what you've shared — not a judgement about you.
         </p>
       </section>
+
+      {showSupportNudge && (
+        <section className="w-full max-w-2xl rounded-2xl border border-primary/20 bg-primary-container/10 p-5 text-left flex items-center justify-between gap-4">
+          <div>
+            <p className="text-label-md font-semibold text-on-surface">Things have seemed a bit harder lately</p>
+            <p className="text-label-sm text-on-surface-variant mt-1">
+              That's okay - support is here whenever you want it, no pressure.
+            </p>
+          </div>
+          <button
+            onClick={onOpenSupport}
+            className="shrink-0 px-4 py-2 rounded-full bg-primary text-on-primary text-label-md font-semibold"
+          >
+            Get support
+          </button>
+        </section>
+      )}
 
       {/* Bento quick actions */}
       <section className="w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

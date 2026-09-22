@@ -1,12 +1,15 @@
 """API for Risk & Trend, human review and the audit log."""
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from . import audit_store, risk_service
+from .database import get_db
 from .database.models import User
-from .security.auth import require_role
+from .security.auth import get_current_user, require_role
+from .security.authz import can_access_victim
+from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/api/risk", tags=["risk"])
 
@@ -36,7 +39,8 @@ async def history(days: int = 7):
 @router.post("/review")
 async def record_review(
     payload: ReviewRequest,
-    user: User = Depends(require_role("counsellor", "admin")),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """Records a HUMAN action. Every call is written to the audit log.
 
@@ -47,7 +51,26 @@ async def record_review(
     body - this previously had no auth at all and trusted whatever
     actor_role the client claimed, which meant any caller could forge an
     audit entry attributed to "counsellor" or "admin".
+
+    Role check is manual rather than require_role() because it isn't a
+    simple rank cutoff: counsellor/admin may record any action, but a
+    guardian may ONLY request a follow-up (flagging a concern to the
+    assigned counsellor, real coordination the spec asks for) - never
+    risk_reviewed/continue_monitoring, which imply clinical review
+    authority a guardian doesn't have. require_role()'s rank hierarchy
+    can't express "this rank, but only for one specific action" - and
+    ROLE_RANK puts guardian at the same rank as victim, so a plain rank
+    cutoff would have to admit victims too.
     """
+    if user.role not in ("counsellor", "admin", "guardian"):
+        raise HTTPException(status_code=403, detail="Your role does not have access to this resource.")
+    if user.role == "guardian" and payload.action != "review_requested":
+        raise HTTPException(
+            status_code=403,
+            detail="A guardian may only request a follow-up review, not record a clinical decision.",
+        )
+    if not can_access_victim(user, payload.aura_id, db):
+        raise HTTPException(status_code=403, detail="Not authorised for this case.")
     if payload.action not in audit_store.ACTIONS:
         return {
             "success": False,
