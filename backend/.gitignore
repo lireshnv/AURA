@@ -1,0 +1,28 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# Local databases (contain user well-being data)
+*.db
+*.db-wal
+*.db-shm
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+*.egg-info/
+
+# Temporary media from voice processing
+temp_*
+*.webm
+*.wav
+*.m4a
+*.mp3
+
+# Test fixtures downloaded locally
+tests/fixtures/

@@ -1,0 +1,25 @@
+# Voice / speech / text emotion analysis dependencies.
+#
+# Kept in a SEPARATE requirements file from the core facial pipeline so the
+# existing DeepFace video system installs and runs even if these heavier
+# audio/NLP models are unavailable. Every module that uses them degrades
+# gracefully (reporting available=false) rather than fabricating a result.
+
+# --- Audio I/O and acoustic features ---
+librosa==0.10.2.post1
+soundfile==0.12.1
+audioread==3.0.1
+
+# --- Clinical-grade voice-quality features (jitter/shimmer/HNR via Praat) ---
+praat-parselmouth==0.4.3
+
+# --- Voice activity detection (tiny C extension, no model download) ---
+webrtcvad-wheels==2.0.14
+
+# --- Speech-to-text: ElevenLabs (hosted API; see ELEVENLABS_API_KEY in .env) ---
+requests>=2.27.1
+
+# --- Voice emotion + text emotion (pretrained transformers, CPU inference) ---
+# torch CPU wheel is installed separately from the PyTorch CPU index; see
+# README for the exact command.
+transformers==4.44.2

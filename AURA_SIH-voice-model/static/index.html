@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AURA - Your Companion</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <!-- FontAwesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="chat-container">
+        <header>
+            <div class="header-info">
+                <h1>AURA</h1>
+                <p>I'm here for you, whenever you're ready.</p>
+            </div>
+        </header>
+
+        <div id="chat-box" class="chat-box">
+            <!-- Messages will appear here -->
+            <div class="message aura-message">
+                Hello. I'm AURA. This is a safe space. You can talk to me or ask me questions whenever you feel comfortable.
+            </div>
+        </div>
+
+        <div class="input-area">
+            <button id="record-btn" class="record-btn" title="Hold to record audio">
+                <i class="fas fa-microphone"></i>
+            </button>
+            <div class="input-wrapper">
+                <textarea id="message-input" placeholder="Type a message or use the microphone..." rows="1"></textarea>
+            </div>
+            <button id="send-btn" class="send-btn" title="Send message">
+                <i class="fas fa-paper-plane"></i>
+            </button>
+        </div>
+        <div id="recording-status" class="recording-status hidden">
+            <span class="pulsing-dot"></span> Recording... Click mic to stop.
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="/static/app.js"></script>
+</body>
+</html>
