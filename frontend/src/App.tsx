@@ -20,7 +20,7 @@ import HistoryPage from "./components/HistoryPage"
 import ProfilePage from "./components/ProfilePage"
 import AICompanion from "./components/AICompanion"
 import AuraVoiceConversation from "./components/AuraVoiceConversation"
-import ConversationInsights from "./components/ConversationInsights"
+import MyPatterns from "./components/MyPatterns"
 import IvrsCallPortal from "./components/IvrsCall/IvrsCallPortal"
 import AdminDashboard from "./components/AdminDashboard"
 import CounsellorCallPanel from "./components/CounsellorCallPanel"
@@ -886,7 +886,7 @@ export default function App() {
               </div>
             )}
 
-            <ConversationInsights points={timeline} observations={observations} />
+            <MyPatterns onStartCheckin={() => setPage("checkin")} />
 
             {reportLoading && (
               <div className="rounded-[24px] bg-surface-container-lowest border border-outline-variant p-6 text-center text-body-md text-on-surface-variant card-shadow">

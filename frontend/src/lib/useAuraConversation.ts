@@ -144,6 +144,22 @@ export function useAuraConversation(language: string) {
     audioRef.current?.pause()
   }, [])
 
+  /**
+   * A scripted opener/acknowledgement, spoken through the same TTS engine as
+   * a real reply. Deliberately NOT a call to the LLM - it's fixed UI copy
+   * ("I'm here, what's on your mind?"), not a fabricated model response, so
+   * it never enters the persisted session history the same way a real turn
+   * does. Used to make voice-first surfaces feel immediately alive instead
+   * of sitting silently until the user speaks first.
+   */
+  const greet = useCallback(
+    (text: string) => {
+      setMessages((m) => [...m, { role: "assistant", content: text }])
+      playReply(text)
+    },
+    [playReply]
+  )
+
   const reset = useCallback(async () => {
     if (sessionId) await clearConversation(sessionId)
     const fresh = await startNewConversation()
@@ -166,5 +182,6 @@ export function useAuraConversation(language: string) {
     send,
     reset,
     stopSpeaking,
+    greet,
   }
 }

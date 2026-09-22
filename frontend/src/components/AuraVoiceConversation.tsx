@@ -4,8 +4,10 @@ import { useAuraConversation } from "../lib/useAuraConversation"
 import { transcribeVoice } from "../lib/chatApi"
 import { RollingAudioCapture } from "../lib/audioCapture"
 import { recordOutcome } from "../lib/patternsApi"
+import { CareActivityType, setConsent, submitCareAction } from "../lib/twinApi"
 import { LANGUAGE_OPTIONS, getStoredLanguage, storeLanguage } from "../lib/companionLanguages"
 import AvatarModule from "./AvatarModule"
+import { ActivityModal } from "./DailyCare"
 import { AvatarAnimationState } from "./AvatarModule/types"
 import { SafetyPanel, renderMarkdown } from "./AICompanion"
 
@@ -61,8 +63,9 @@ export default function AuraVoiceConversation({
   const [transcribing, setTranscribing] = useState(false)
   const [showFullTranscript, setShowFullTranscript] = useState(false)
   const [feedback, setFeedback] = useState<FeelingAfter | null>(null)
+  const [showCalmActivity, setShowCalmActivity] = useState(false)
 
-  const { messages, safetyBlocks, sending, speaking, status, send, reset } = useAuraConversation(language)
+  const { messages, safetyBlocks, sending, speaking, status, send, reset, greet } = useAuraConversation(language)
 
   const captureRef = useRef<RollingAudioCapture | null>(null)
   const pollRef = useRef<number | null>(null)
@@ -146,8 +149,14 @@ export default function AuraVoiceConversation({
       pausedRef.current = false
       setPhase("listening")
       // One interactive control: talking to Aura also starts the same
-      // voice-signal analysis "Analyse Now" would, rather than needing both.
+      // voice AND face analysis "Analyse Now" would, rather than needing
+      // three separate buttons.
       onStartAnalysis()
+      onToggleCamera(true)
+      // Aura opens the conversation immediately instead of sitting silently
+      // until the user speaks first - a scripted, spoken opener, not a
+      // fabricated model reply (see useAuraConversation's greet()).
+      if (messages.length === 0) greet("I'm here. What's on your mind?")
     } catch {
       setPhase("idle")
     }
@@ -186,10 +195,18 @@ export default function AuraVoiceConversation({
     })
   }
 
-  const continueTalking = () => {
+  const continueTalking = async () => {
     setPhase("idle")
     setFeedback(null)
-    start()
+    await start()
+    greet("Of course. I'm still here.")
+  }
+
+  const completeCalmActivity = async (type: CareActivityType) => {
+    await setConsent("companion_care", true)
+    await submitCareAction("activity", type)
+    setShowCalmActivity(false)
+    greet("Well done. How are you feeling now?")
   }
 
   useEffect(() => stopCapture, [])
@@ -337,15 +354,24 @@ export default function AuraVoiceConversation({
           {/* Quick choices after Aura's very first reply */}
           {phase === "listening" && messages.length === 2 && (
             <div className="flex flex-wrap justify-center gap-2 mt-5">
-              {["Talk more", "Calm down", "I'm not sure"].map((choice) => (
-                <button
-                  key={choice}
-                  onClick={() => send(choice)}
-                  className="rounded-full border border-outline-variant px-4 py-2 text-label-md text-on-surface hover:border-primary hover:bg-primary-container/10"
-                >
-                  {choice}
-                </button>
-              ))}
+              <button
+                onClick={() => send("Talk more")}
+                className="rounded-full border border-outline-variant px-4 py-2 text-label-md text-on-surface hover:border-primary hover:bg-primary-container/10"
+              >
+                Talk more
+              </button>
+              <button
+                onClick={() => setShowCalmActivity(true)}
+                className="rounded-full border border-outline-variant px-4 py-2 text-label-md text-on-surface hover:border-primary hover:bg-primary-container/10"
+              >
+                Calm down
+              </button>
+              <button
+                onClick={() => send("I'm not sure")}
+                className="rounded-full border border-outline-variant px-4 py-2 text-label-md text-on-surface hover:border-primary hover:bg-primary-container/10"
+              >
+                I'm not sure
+              </button>
             </div>
           )}
         </div>
@@ -498,6 +524,10 @@ export default function AuraVoiceConversation({
         Aura is an AI companion and does not replace professional care. If you are in danger,
         please contact your local emergency number.
       </p>
+
+      {showCalmActivity && (
+        <ActivityModal onClose={() => setShowCalmActivity(false)} onComplete={completeCalmActivity} />
+      )}
     </section>
   )
 }
