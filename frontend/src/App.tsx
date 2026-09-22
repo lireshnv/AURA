@@ -1190,7 +1190,6 @@ export default function App() {
         {role === "counsellor" && (
           <>
             {page === "cases" && <CounsellorDashboard />}
-            {page === "analysis" && analysisView}
             {page === "counsellor-call" && <CounsellorCallPanel />}
             {page === "history-profile" && (
               <HistoryProfilePage capabilities={voiceCaps} backendOnline={backendOnline} />

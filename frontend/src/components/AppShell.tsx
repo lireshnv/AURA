@@ -35,7 +35,6 @@ const VICTIM_NAV: { key: Page; label: string; icon: string }[] = [
 // but never the victim's personal home view.
 const COUNSELLOR_NAV: { key: Page; label: string; icon: string }[] = [
   { key: "cases", label: "Home", icon: "home" },
-  { key: "analysis", label: "Live Analysis", icon: "monitor_heart" },
   { key: "counsellor-call", label: "AURA Call", icon: "call" },
   { key: "history-profile", label: "History & Profile", icon: "history" },
 ]
