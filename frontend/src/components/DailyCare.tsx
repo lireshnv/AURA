@@ -1,16 +1,6 @@
-import { useCallback, useEffect, useState } from "react"
-import { Bone, Droplets, HeartHandshake, Sparkles, X, Wind, PenLine, Footprints, Leaf } from "lucide-react"
-import {
-  CareActivityType,
-  CareSummary,
-  fetchCareToday,
-  setConsent,
-  submitCareAction,
-  submitCheckin,
-} from "../lib/twinApi"
-import AvatarModule from "./AvatarModule"
-import { useAvatarIdentity } from "./AvatarModule/useAvatarIdentity"
-import { AvatarAnimationState } from "./AvatarModule/types"
+import { useEffect, useState } from "react"
+import { Bone, Droplets, X, Wind, PenLine, Footprints, Leaf } from "lucide-react"
+import { CareActivityType } from "../lib/twinApi"
 
 export const ACTIVITIES: { type: CareActivityType; label: string; icon: typeof Wind; description: string }[] = [
   { type: "breathing", label: "Breathing", icon: Wind, description: "A short guided box-breathing exercise." },
@@ -137,7 +127,7 @@ export function ActivityModal({
   )
 }
 
-type ReactionKind = "feed" | "water"
+export type ReactionKind = "feed" | "water"
 
 const REACTION_COPY: Record<ReactionKind, { title: string; detail: string; icon: typeof Bone; color: string }> = {
   feed: { title: "Yum!", detail: "Fed today - your companion is happy.", icon: Bone, color: "text-amber-600" },
@@ -147,7 +137,7 @@ const REACTION_COPY: Record<ReactionKind, { title: string; detail: string; icon:
 /** Brief overlay that pops up over the companion after a real feed/water
  * action - a couple of rising particles plus a one-line confirmation, gone
  * on its own so it never blocks the next action. */
-function CareReactionPanel({ kind, onDone }: { kind: ReactionKind; onDone: () => void }) {
+export function CareReactionPanel({ kind, onDone }: { kind: ReactionKind; onDone: () => void }) {
   const { title, detail, icon: Icon, color } = REACTION_COPY[kind]
 
   useEffect(() => {
@@ -182,180 +172,9 @@ function CareReactionPanel({ kind, onDone }: { kind: ReactionKind; onDone: () =>
 }
 
 /**
- * Interactive Companion daily-care panel: Feed / Water / Check-in / Activity,
- * a real Today checklist, and the SAME shared avatar (see AvatarModule) shown
- * full-size with its type/expression/customization controls - this is where
- * you pick and customize the companion's look; AI Companion shows the same
- * avatar reacting live to conversation instead.
- *
- * The companion is always a pet (dog/cat/robot/custom) or a plant, never a
- * generic human avatar: Feed + streak apply to a pet, Water applies to a
- * plant, matching what the model on screen actually is.
+ * The pieces above (ACTIVITIES, ActivityModal, CareReactionPanel, ReactionKind)
+ * back the ONE companion stage that now lives on the AI Companion page
+ * (see AICompanion.tsx) - feed/water/check-in/activity actions and the live
+ * conversation reactions all drive the same avatar there, so there is a
+ * single companion in the app rather than a second one on this page.
  */
-export default function DailyCare() {
-  const { avatarType } = useAvatarIdentity()
-  const isPlant = avatarType === "plant"
-
-  const [summary, setSummary] = useState<CareSummary | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [showActivity, setShowActivity] = useState(false)
-  const [checkinBusy, setCheckinBusy] = useState(false)
-  const [reaction, setReaction] = useState<AvatarAnimationState>("idle")
-  const [carePanel, setCarePanel] = useState<ReactionKind | null>(null)
-
-  const load = useCallback(() => {
-    fetchCareToday().then((s) => {
-      setSummary(s)
-      setLoading(false)
-    })
-  }, [])
-
-  useEffect(() => {
-    load()
-  }, [load])
-
-  const greet = () => {
-    setReaction("greeting")
-    window.setTimeout(() => setReaction("idle"), 2200)
-  }
-
-  const enableCare = async () => {
-    await setConsent("companion_care", true)
-    load()
-  }
-
-  const doAction = async (kind: "feed" | "water") => {
-    if (!summary?.consent) {
-      await enableCare()
-    }
-    const result = await submitCareAction(kind)
-    if (result.success) {
-      setSummary(result as CareSummary)
-      greet()
-      setCarePanel(kind)
-    }
-  }
-
-  const doCheckin = async () => {
-    setCheckinBusy(true)
-    await setConsent("checkins", true)
-    // A neutral single-value quick check-in - the full questionnaire lives in
-    // My Wellbeing; this only records that a check-in happened today.
-    await submitCheckin({ mood: 5 })
-    await load()
-    setCheckinBusy(false)
-    greet()
-  }
-
-  const completeActivity = async (type: CareActivityType) => {
-    if (!summary?.consent) await enableCare()
-    const result = await submitCareAction("activity", type)
-    if (result.success) setSummary(result as CareSummary)
-    setShowActivity(false)
-    greet()
-  }
-
-  if (loading) {
-    return (
-      <div className="rounded-xl bg-white border border-slate-200 p-5 text-center text-sm text-slate-400">
-        Loading daily care…
-      </div>
-    )
-  }
-
-  const today = summary?.today ?? { feed: false, water: false, checkin: false, activity: false }
-
-  return (
-    <section className="rounded-xl bg-white border border-slate-200 p-5 space-y-5">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-slate-900">Daily Care</h2>
-        {!isPlant && summary && summary.care_streak_days > 0 && (
-          <span className="flex items-center gap-1 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
-            <Sparkles size={11} />
-            {summary.care_streak_days}-day streak
-          </span>
-        )}
-      </div>
-
-      {!summary?.consent && (
-        <div className="rounded-lg bg-violet-50 border border-violet-200 px-3 py-2 text-xs text-violet-800 flex items-center justify-between gap-3">
-          <span>Turn on Daily Care to have AURA reflect your real completed actions.</span>
-          <button
-            onClick={enableCare}
-            className="shrink-0 px-2.5 py-1 rounded-lg bg-violet-600 text-white text-[11px]"
-          >
-            Enable
-          </button>
-        </div>
-      )}
-
-      <div className="relative rounded-2xl overflow-hidden">
-        <AvatarModule drivenAnimation={reaction} />
-        {carePanel && <CareReactionPanel kind={carePanel} onDone={() => setCarePanel(null)} />}
-      </div>
-
-      <div className="grid grid-cols-3 gap-2">
-        {isPlant ? (
-          <button
-            onClick={() => doAction("water")}
-            className="flex flex-col items-center gap-1 rounded-xl border border-slate-200 py-2.5 hover:bg-slate-50"
-          >
-            <Droplets size={17} className="text-sky-600" />
-            <span className="text-[11px] text-slate-600">Water</span>
-          </button>
-        ) : (
-          <button
-            onClick={() => doAction("feed")}
-            className="flex flex-col items-center gap-1 rounded-xl border border-slate-200 py-2.5 hover:bg-slate-50"
-          >
-            <Bone size={17} className="text-amber-600" />
-            <span className="text-[11px] text-slate-600">Feed</span>
-          </button>
-        )}
-        <button
-          onClick={doCheckin}
-          disabled={checkinBusy}
-          className="flex flex-col items-center gap-1 rounded-xl border border-slate-200 py-2.5 hover:bg-slate-50 disabled:opacity-50"
-        >
-          <HeartHandshake size={17} className="text-rose-600" />
-          <span className="text-[11px] text-slate-600">Check-in</span>
-        </button>
-        <button
-          onClick={() => setShowActivity(true)}
-          className="flex flex-col items-center gap-1 rounded-xl border border-slate-200 py-2.5 hover:bg-slate-50"
-        >
-          <Sparkles size={17} className="text-violet-600" />
-          <span className="text-[11px] text-slate-600">Activity</span>
-        </button>
-      </div>
-
-      <div>
-        <h3 className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-2">Today</h3>
-        <ul className="space-y-1.5">
-          {(
-            [
-              isPlant ? (["water", "Water"] as const) : (["feed", "Feed"] as const),
-              ["checkin", "Check-in"],
-              ["activity", "Activity"],
-            ] as const
-          ).map(([key, label]) => (
-            <li key={key} className="flex items-center gap-2 text-sm">
-              <span
-                className={`w-4 h-4 rounded-full border flex items-center justify-center text-[10px] ${
-                  today[key] ? "bg-emerald-500 border-emerald-500 text-white" : "border-slate-300 text-transparent"
-                }`}
-              >
-                ✓
-              </span>
-              <span className={today[key] ? "text-slate-700" : "text-slate-400"}>{label}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      {showActivity && (
-        <ActivityModal onClose={() => setShowActivity(false)} onComplete={completeActivity} />
-      )}
-    </section>
-  )
-}

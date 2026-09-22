@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import {
   Send,
   Mic,
@@ -9,13 +9,26 @@ import {
   LifeBuoy,
   Info,
   Volume2,
+  Bone,
+  Droplets,
+  HeartHandshake,
+  Sparkles,
 } from "lucide-react"
 import { SafetyBlock, transcribeVoice } from "../lib/chatApi"
 import { useAuraConversation } from "../lib/useAuraConversation"
 import { LANGUAGE_OPTIONS, getStoredLanguage, storeLanguage } from "../lib/companionLanguages"
+import {
+  CareActivityType,
+  CareSummary,
+  fetchCareToday,
+  setConsent,
+  submitCareAction,
+  submitCheckin,
+} from "../lib/twinApi"
 import AvatarModule from "./AvatarModule"
+import { useAvatarIdentity } from "./AvatarModule/useAvatarIdentity"
 import { AvatarAnimationState } from "./AvatarModule/types"
-import DailyCare from "./DailyCare"
+import { ActivityModal, CareReactionPanel, ReactionKind } from "./DailyCare"
 
 /**
  * AURA AI Companion.
@@ -87,6 +100,13 @@ export default function AICompanion() {
   const [showTranscript, setShowTranscript] = useState(false)
   const [pokeReaction, setPokeReaction] = useState<AvatarAnimationState | null>(null)
 
+  const { avatarType } = useAvatarIdentity()
+  const isPlant = avatarType === "plant"
+  const [careSummary, setCareSummary] = useState<CareSummary | null>(null)
+  const [showActivity, setShowActivity] = useState(false)
+  const [checkinBusy, setCheckinBusy] = useState(false)
+  const [carePanel, setCarePanel] = useState<ReactionKind | null>(null)
+
   const changeLanguage = (code: string) => {
     setLanguage(code)
     storeLanguage(code)
@@ -116,6 +136,48 @@ export default function AICompanion() {
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" })
   }, [messages, sending])
+
+  const loadCare = useCallback(() => {
+    fetchCareToday().then(setCareSummary)
+  }, [])
+
+  useEffect(() => {
+    loadCare()
+  }, [loadCare])
+
+  const enableCare = async () => {
+    await setConsent("companion_care", true)
+    loadCare()
+  }
+
+  const doCareAction = async (kind: "feed" | "water") => {
+    if (!careSummary?.consent) await enableCare()
+    const result = await submitCareAction(kind)
+    if (result.success) {
+      setCareSummary(result as CareSummary)
+      poke()
+      setCarePanel(kind)
+    }
+  }
+
+  const doCheckin = async () => {
+    setCheckinBusy(true)
+    await setConsent("checkins", true)
+    // A neutral single-value quick check-in - the full questionnaire lives in
+    // My Wellbeing; this only records that a check-in happened today.
+    await submitCheckin({ mood: 5 })
+    await loadCare()
+    setCheckinBusy(false)
+    poke()
+  }
+
+  const completeActivity = async (type: CareActivityType) => {
+    if (!careSummary?.consent) await enableCare()
+    const result = await submitCareAction("activity", type)
+    if (result.success) setCareSummary(result as CareSummary)
+    setShowActivity(false)
+    poke()
+  }
 
   const toggleRecording = async () => {
     if (recording) {
@@ -227,16 +289,75 @@ export default function AICompanion() {
           <p className="text-sm font-semibold text-on-surface">
             {messages.length === 0 ? "Say hello, or tap your companion" : lastAssistantMessage?.content ? "" : "Listening…"}
           </p>
-          <p className="text-[11px] text-on-surface-variant capitalize shrink-0">{effectiveAnimation}</p>
+          <div className="flex items-center gap-2 shrink-0">
+            {!isPlant && careSummary && careSummary.care_streak_days > 0 && (
+              <span className="flex items-center gap-1 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
+                <Sparkles size={11} />
+                {careSummary.care_streak_days}-day streak
+              </span>
+            )}
+            <p className="text-[11px] text-on-surface-variant capitalize">{effectiveAnimation}</p>
+          </div>
         </div>
 
-        <button
-          onClick={poke}
-          title="Tap to say hi"
-          className="block w-full h-72 md:h-96 px-4 pb-2 cursor-pointer"
-        >
-          <AvatarModule drivenAnimation={effectiveAnimation} compact />
-        </button>
+        <div className="relative">
+          <button
+            onClick={poke}
+            title="Tap to say hi"
+            className="block w-full h-72 md:h-96 px-4 pb-2 cursor-pointer"
+          >
+            <AvatarModule drivenAnimation={effectiveAnimation} compact />
+          </button>
+          {carePanel && <CareReactionPanel kind={carePanel} onDone={() => setCarePanel(null)} />}
+        </div>
+
+        {careSummary && !careSummary.consent && (
+          <div className="mx-5 mb-3 rounded-lg bg-violet-50 border border-violet-200 px-3 py-2 text-xs text-violet-800 flex items-center justify-between gap-3">
+            <span>Turn on Daily Care to have AURA reflect your real completed actions.</span>
+            <button
+              onClick={enableCare}
+              className="shrink-0 px-2.5 py-1 rounded-lg bg-violet-600 text-white text-[11px]"
+            >
+              Enable
+            </button>
+          </div>
+        )}
+
+        {/* Play with your companion: feed/water, check-in, an activity */}
+        <div className="grid grid-cols-3 gap-2 px-5 pb-4">
+          {isPlant ? (
+            <button
+              onClick={() => doCareAction("water")}
+              className="flex flex-col items-center gap-1 rounded-xl border border-outline-variant py-2.5 hover:bg-surface-container-high"
+            >
+              <Droplets size={17} className="text-sky-600" />
+              <span className="text-[11px] text-on-surface-variant">Water</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => doCareAction("feed")}
+              className="flex flex-col items-center gap-1 rounded-xl border border-outline-variant py-2.5 hover:bg-surface-container-high"
+            >
+              <Bone size={17} className="text-amber-600" />
+              <span className="text-[11px] text-on-surface-variant">Feed</span>
+            </button>
+          )}
+          <button
+            onClick={doCheckin}
+            disabled={checkinBusy}
+            className="flex flex-col items-center gap-1 rounded-xl border border-outline-variant py-2.5 hover:bg-surface-container-high disabled:opacity-50"
+          >
+            <HeartHandshake size={17} className="text-rose-600" />
+            <span className="text-[11px] text-on-surface-variant">Check-in</span>
+          </button>
+          <button
+            onClick={() => setShowActivity(true)}
+            className="flex flex-col items-center gap-1 rounded-xl border border-outline-variant py-2.5 hover:bg-surface-container-high"
+          >
+            <Sparkles size={17} className="text-violet-600" />
+            <span className="text-[11px] text-on-surface-variant">Activity</span>
+          </button>
+        </div>
 
         {!showTranscript && lastAssistantMessage && (
           <div className="px-5 pb-3">
@@ -349,7 +470,9 @@ export default function AICompanion() {
           </p>
       </div>
 
-      <DailyCare />
+      {showActivity && (
+        <ActivityModal onClose={() => setShowActivity(false)} onComplete={completeActivity} />
+      )}
     </div>
   )
 }
