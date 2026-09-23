@@ -131,7 +131,7 @@ function SessionCard({ session }: { session: HistorySession }) {
   )
 }
 
-export default function HistoryPage() {
+export default function HistoryPage({ compact = false }: { compact?: boolean } = {}) {
   const [data, setData] = useState<HistoryResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [confirmClear, setConfirmClear] = useState(false)
@@ -158,13 +158,15 @@ export default function HistoryPage() {
 
   return (
     <div className="space-y-stack-md">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-        <div className="max-w-2xl">
-          <h1 className="text-display-lg-mobile text-on-surface mb-2">Session History</h1>
-          <p className="text-body-lg text-on-surface-variant">
-            Past sessions, stored as structured signals only — not a diagnostic record.
-          </p>
-        </div>
+      <div className={`flex flex-col md:flex-row md:items-end gap-4 ${compact ? "justify-end" : "justify-between"}`}>
+        {!compact && (
+          <div className="max-w-2xl">
+            <h1 className="text-display-lg-mobile text-on-surface mb-2">Session History</h1>
+            <p className="text-body-lg text-on-surface-variant">
+              Past sessions, stored as structured signals only — not a diagnostic record.
+            </p>
+          </div>
+        )}
         <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={load}

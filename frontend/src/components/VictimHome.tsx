@@ -184,7 +184,7 @@ export default function VictimHome({
       )}
 
       {/* Bento quick actions */}
-      <section className="w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <section className="w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
         <ActionTile
           icon="favorite"
           iconBg="bg-primary-container/10"
@@ -208,6 +208,14 @@ export default function VictimHome({
           title="Talk to AURA"
           body="Start a guided session"
           onClick={onOpenAnalysis}
+        />
+        <ActionTile
+          icon="folder_shared"
+          iconBg="bg-primary-container/10"
+          iconColor="text-primary"
+          title="Your Case"
+          body="Status, documents & requests"
+          onClick={onOpenSupport}
         />
         <button
           onClick={onOpenWellbeing}

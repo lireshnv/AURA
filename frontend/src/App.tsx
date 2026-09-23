@@ -16,7 +16,6 @@ import WellbeingRiskPage from "./components/WellbeingRiskPage"
 import CheckIn from "./components/CheckIn"
 import Support from "./components/Support"
 import SafetyPlan from "./components/SafetyPlan"
-import HistoryPage from "./components/HistoryPage"
 import ProfilePage from "./components/ProfilePage"
 import AICompanion from "./components/AICompanion"
 import AuraVoiceConversation from "./components/AuraVoiceConversation"
@@ -1243,8 +1242,9 @@ export default function App() {
               />
             )}
             {page === "safety-plan" && <SafetyPlan />}
-            {page === "history" && <HistoryPage />}
-            {page === "profile" && <ProfilePage capabilities={voiceCaps} backendOnline={backendOnline} />}
+            {page === "profile" && (
+              <ProfilePage auraId={activeProfile} capabilities={voiceCaps} backendOnline={backendOnline} />
+            )}
           </>
         )}
 

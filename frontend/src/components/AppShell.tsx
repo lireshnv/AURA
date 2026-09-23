@@ -27,7 +27,6 @@ const VICTIM_NAV: { key: Page; label: string; icon: string }[] = [
   { key: "companion", label: "Companion", icon: "forum" },
   { key: "insights", label: "Insights", icon: "insights" },
   { key: "support", label: "Support", icon: "volunteer_activism" },
-  { key: "history", label: "History", icon: "history" },
   { key: "profile", label: "Profile", icon: "account_circle" },
 ]
 
