@@ -16,7 +16,7 @@ const AGREEMENT_COLOR: Record<string, string> = {
   high: "text-emerald-600",
   moderate: "text-amber-600",
   low: "text-rose-600",
-  unknown: "text-slate-500",
+  unknown: "text-on-surface-variant",
 }
 
 interface Props {
@@ -42,20 +42,20 @@ function ModalityCell({
 }) {
   const inactive = !emotion
   return (
-    <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
-      <div className="text-[10px] uppercase tracking-wide text-slate-500 flex items-center justify-between">
+    <div className="rounded-lg bg-surface-container-low border border-outline-variant px-3 py-2">
+      <div className="text-[10px] uppercase tracking-wide text-on-surface-variant flex items-center justify-between">
         <span>{label}</span>
-        {weight !== undefined && <span className="text-slate-400">{weight.toFixed(0)}%</span>}
+        {weight !== undefined && <span className="text-on-surface-variant">{weight.toFixed(0)}%</span>}
       </div>
       {inactive ? (
-        <div className="text-xs text-slate-400 mt-1">not active</div>
+        <div className="text-xs text-on-surface-variant mt-1">not active</div>
       ) : (
         <>
-          <div className="text-sm font-semibold text-slate-900 mt-0.5 capitalize truncate">
+          <div className="text-sm font-semibold text-on-surface mt-0.5 capitalize truncate">
             {EMOJI[emotion] ?? ""} {emotion}
           </div>
           {confidence !== null && (
-            <div className="text-[10px] text-slate-500">{confidence.toFixed(0)}%</div>
+            <div className="text-[10px] text-on-surface-variant">{confidence.toFixed(0)}%</div>
           )}
         </>
       )}
@@ -75,15 +75,15 @@ export default function MultimodalPanel({
   const weights = fusion?.effective_weights ?? {}
 
   return (
-    <div className="rounded-xl bg-white border border-slate-200 p-4 space-y-3">
+    <div className="rounded-xl bg-surface-container-lowest border border-outline-variant p-4 space-y-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-xs uppercase tracking-wide text-slate-500 flex items-center gap-1.5">
+        <h2 className="text-xs uppercase tracking-wide text-on-surface-variant flex items-center gap-1.5">
           <Layers size={12} />
           Multimodal Estimate
         </h2>
         {fusion && (
           <div className="text-[11px]">
-            <span className="text-slate-500">Signal agreement </span>
+            <span className="text-on-surface-variant">Signal agreement </span>
             <span className={`font-semibold ${AGREEMENT_COLOR[fusion.agreement.label]}`}>
               {fusion.agreement.score.toFixed(0)}% ({fusion.agreement.label})
             </span>
@@ -114,7 +114,7 @@ export default function MultimodalPanel({
           <div className="text-[10px] uppercase tracking-wide text-violet-700">Overall</div>
           {fusion ? (
             <>
-              <div className="text-sm font-semibold text-slate-900 mt-0.5 capitalize truncate">
+              <div className="text-sm font-semibold text-on-surface mt-0.5 capitalize truncate">
                 {EMOJI[fusion.emotion.dominant] ?? ""} {fusion.emotion.dominant}
               </div>
               <div className="text-[10px] text-violet-600">
@@ -123,7 +123,7 @@ export default function MultimodalPanel({
               </div>
             </>
           ) : (
-            <div className="text-xs text-slate-400 mt-1">—</div>
+            <div className="text-xs text-on-surface-variant mt-1">—</div>
           )}
         </div>
       </div>
@@ -145,7 +145,7 @@ export default function MultimodalPanel({
       {fusion?.notes && fusion.notes.length > 0 && (
         <ul className="space-y-0.5">
           {fusion.notes.map((note, i) => (
-            <li key={i} className="text-[10px] text-slate-500">
+            <li key={i} className="text-[10px] text-on-surface-variant">
               · {note}
             </li>
           ))}

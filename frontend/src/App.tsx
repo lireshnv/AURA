@@ -9,8 +9,10 @@ import VoiceAnalysis from "./components/VoiceAnalysis"
 import LiveTranscript from "./components/LiveTranscript"
 import MultimodalTimeline from "./components/MultimodalTimeline"
 import AppShell, { Page, Role } from "./components/AppShell"
-import HistoryProfilePage from "./components/HistoryProfilePage"
-import CounsellorDashboard, { resetSyntheticDataSeed } from "./components/CounsellorDashboard"
+import CaseHub from "./components/CaseHub"
+import AuraCalendar from "./components/AuraCalendar"
+import MyCounsellor from "./components/MyCounsellor"
+import CounsellorDashboard, { COUNSELLOR_SIDEBAR, TabKey as CounsellorTabKey } from "./components/CounsellorDashboard"
 import VictimHome from "./components/VictimHome"
 import WellbeingRiskPage from "./components/WellbeingRiskPage"
 import CheckIn from "./components/CheckIn"
@@ -21,9 +23,9 @@ import AICompanion from "./components/AICompanion"
 import AuraVoiceConversation from "./components/AuraVoiceConversation"
 import MyPatterns from "./components/MyPatterns"
 import IvrsCallPortal from "./components/IvrsCall/IvrsCallPortal"
-import AdminDashboard from "./components/AdminDashboard"
-import CounsellorCallPanel from "./components/CounsellorCallPanel"
-import GuardianDashboard from "./components/GuardianDashboard"
+import AdminDashboard, { ADMIN_SIDEBAR, TabKey as AdminTabKey } from "./components/AdminDashboard"
+import GuardianDashboard, { GUARDIAN_SIDEBAR, TabKey as GuardianTabKey } from "./components/GuardianDashboard"
+import Landing from "./components/Landing"
 import PortalSelector from "./components/Auth/PortalSelector"
 import AuthScreen from "./components/Auth/AuthScreen"
 import OnboardingSurvey from "./components/Auth/OnboardingSurvey"
@@ -117,6 +119,17 @@ export default function App() {
   const [starting, setStarting] = useState(false)
   const [page, setPage] = useState<Page>("home")
   const [distressSignal, setDistressSignal] = useState<DistressSignalResponse | null>(null)
+  const [sosTrigger, setSosTrigger] = useState(0)
+
+  // Counsellor/Admin/Guardian each render their whole module list as one
+  // sidebar (via AppShell's sidebarGroups override) instead of a second,
+  // nested sidebar inside their own page - this is the active section for
+  // each, lifted up here so AppShell can read/drive it directly.
+  const [counsellorTab, setCounsellorTab] = useState<CounsellorTabKey>("overview")
+  const [adminTab, setAdminTab] = useState<AdminTabKey>("overview")
+  const [guardianTab, setGuardianTab] = useState<GuardianTabKey>("home")
+  const [counsellorAlertCount, setCounsellorAlertCount] = useState(0)
+  const [adminAlertCount, setAdminAlertCount] = useState(0)
 
   // Real auth state. No role toggle and no hardcoded identity - who you are
   // and what you can see comes entirely from the authenticated JWT.
@@ -125,6 +138,12 @@ export default function App() {
   const [portalRole, setPortalRole] = useState<AuthRole | null>(null)
   const [googleAuthError, setGoogleAuthError] = useState(false)
   const [resetToken, setResetToken] = useState<string | null>(null)
+  // Cinematic landing is the default entry point; a Google auth error or a
+  // password-reset link should surface the relevant screen immediately
+  // instead of being hidden behind it.
+  const [showLanding, setShowLanding] = useState(
+    !new URLSearchParams(window.location.search).has("auth_error")
+  )
 
   useEffect(() => {
     // After a Google sign-in redirect, the browser lands back here with
@@ -1160,6 +1179,15 @@ export default function App() {
 
   if (!authUser) {
     if (!portalRole) {
+      if (showLanding) {
+        return (
+          <Landing
+            onTalkToAura={() => setPortalRole("victim")}
+            onShowPortals={() => setShowLanding(false)}
+            onSelectRole={(r) => setPortalRole(r)}
+          />
+        )
+      }
       return <PortalSelector onSelect={setPortalRole} googleError={googleAuthError} />
     }
     return (
@@ -1169,7 +1197,6 @@ export default function App() {
         onResetTokenConsumed={() => setResetToken(null)}
         onBack={() => setPortalRole(null)}
         onAuthenticated={(user) => {
-          resetSyntheticDataSeed()
           setAuthUser(user)
           setPage(
             user.role === "counsellor" ? "cases" : user.role === "admin" ? "admin" : user.role === "guardian" ? "guardian" : "home"
@@ -1188,6 +1215,32 @@ export default function App() {
     )
   }
 
+  // These three roles render their whole module list as AppShell's one
+  // sidebar (badge counts injected onto the relevant item) instead of a
+  // second nested sidebar inside their own page content.
+  const sidebarOverride =
+    role === "counsellor"
+      ? {
+          groups: COUNSELLOR_SIDEBAR.map((g) => ({
+            ...g,
+            items: g.items.map((i) => (i.key === "overview" ? { ...i, badge: counsellorAlertCount } : i)),
+          })),
+          active: counsellorTab,
+          onNavigate: (k: string) => setCounsellorTab(k as CounsellorTabKey),
+        }
+      : role === "admin"
+      ? {
+          groups: ADMIN_SIDEBAR.map((g) => ({
+            ...g,
+            items: g.items.map((i) => (i.key === "alerts" ? { ...i, badge: adminAlertCount } : i)),
+          })),
+          active: adminTab,
+          onNavigate: (k: string) => setAdminTab(k as AdminTabKey),
+        }
+      : role === "guardian"
+      ? { groups: GUARDIAN_SIDEBAR, active: guardianTab, onNavigate: (k: string) => setGuardianTab(k as GuardianTabKey) }
+      : null
+
   return (
     <AppShell
       page={page}
@@ -1196,21 +1249,30 @@ export default function App() {
       backendOnline={backendOnline}
       accountLabel={authUser.display_name || authUser.email}
       onLogout={handleLogout}
+      sosTrigger={sosTrigger}
+      cinematic
+      sidebarGroups={sidebarOverride?.groups}
+      sidebarActive={sidebarOverride?.active}
+      onSidebarNavigate={sidebarOverride?.onNavigate}
     >
       <div className="space-y-5">
-        {role === "counsellor" && (
-          <>
-            {page === "cases" && <CounsellorDashboard />}
-            {page === "counsellor-call" && <CounsellorCallPanel />}
-            {page === "history-profile" && (
-              <HistoryProfilePage capabilities={voiceCaps} backendOnline={backendOnline} />
-            )}
-          </>
+        {role === "counsellor" && page === "cases" && (
+          <CounsellorDashboard
+            voiceCapabilities={voiceCaps}
+            backendOnline={backendOnline}
+            tab={counsellorTab}
+            onTabChange={setCounsellorTab}
+            onAlertCountChange={setCounsellorAlertCount}
+          />
         )}
 
-        {role === "admin" && page === "admin" && <AdminDashboard />}
+        {role === "admin" && page === "admin" && (
+          <AdminDashboard tab={adminTab} onTabChange={setAdminTab} onAlertCountChange={setAdminAlertCount} />
+        )}
 
-        {role === "guardian" && page === "guardian" && <GuardianDashboard />}
+        {role === "guardian" && page === "guardian" && (
+          <GuardianDashboard tab={guardianTab} onTabChange={setGuardianTab} />
+        )}
 
         {role === "victim" && (
           <>
@@ -1222,8 +1284,15 @@ export default function App() {
                 onOpenCompanion={() => setPage("companion")}
                 onOpenWellbeing={() => setPage("insights")}
                 onOpenSupport={() => setPage("support")}
+                onOpenCase={() => setPage("case-hub")}
+                onOpenCalendar={() => setPage("calendar")}
+                onOpenCounsellor={() => setPage("my-counsellor")}
+                onNotSafe={() => setSosTrigger((t) => t + 1)}
               />
             )}
+            {page === "case-hub" && <CaseHub auraId={activeProfile} />}
+            {page === "calendar" && <AuraCalendar auraId={activeProfile} />}
+            {page === "my-counsellor" && <MyCounsellor onOpenCompanion={() => setPage("companion")} />}
             {page === "checkin" && (
               <CheckIn
                 onDone={() => setPage("home")}

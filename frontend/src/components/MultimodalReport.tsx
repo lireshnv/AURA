@@ -47,42 +47,42 @@ export default function MultimodalReport({ report }: { report: SessionReport }) 
   const disagreement = new Set(activeDominants).size > 1
 
   return (
-    <div className="space-y-4 pt-4 border-t border-slate-200">
-      <h3 className="text-xs uppercase tracking-wide text-slate-500 flex items-center gap-1.5">
+    <div className="space-y-4 pt-4 border-t border-outline-variant">
+      <h3 className="text-xs uppercase tracking-wide text-on-surface-variant flex items-center gap-1.5">
         <Layers size={12} />
         Multimodal Analysis
       </h3>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {rows.map((row) => (
-          <div key={row.label} className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
-            <div className="text-[10px] uppercase tracking-wide text-slate-500">{row.label}</div>
+          <div key={row.label} className="rounded-lg bg-surface-container-low border border-outline-variant px-3 py-2">
+            <div className="text-[10px] uppercase tracking-wide text-on-surface-variant">{row.label}</div>
             {row.data ? (
               <>
-                <div className="text-sm font-semibold text-slate-900 mt-0.5 capitalize">
+                <div className="text-sm font-semibold text-on-surface mt-0.5 capitalize">
                   {EMOJI[row.data.dominant] ?? ""} {row.data.dominant}
                 </div>
-                <div className="text-[10px] text-slate-500">
+                <div className="text-[10px] text-on-surface-variant">
                   {row.conf !== null && `avg confidence ${row.conf.toFixed(0)}%`}
                   {row.obs !== null && ` · ${row.obs} obs`}
                 </div>
               </>
             ) : (
-              <div className="text-xs text-slate-400 mt-1">not captured</div>
+              <div className="text-xs text-on-surface-variant mt-1">not captured</div>
             )}
           </div>
         ))}
       </div>
 
       {mm.signal_agreement !== null && (
-        <div className="rounded-lg bg-slate-50 border border-slate-200 px-4 py-3">
+        <div className="rounded-lg bg-surface-container-low border border-outline-variant px-4 py-3">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-wide text-slate-500">
+            <span className="text-[10px] uppercase tracking-wide text-on-surface-variant">
               Signal Agreement
             </span>
             <span
               className={`text-sm font-bold ${
-                AGREEMENT_COLOR[mm.agreement_label ?? ""] ?? "text-slate-600"
+                AGREEMENT_COLOR[mm.agreement_label ?? ""] ?? "text-on-surface-variant"
               }`}
             >
               {mm.signal_agreement.toFixed(0)}%{" "}
@@ -103,7 +103,7 @@ export default function MultimodalReport({ report }: { report: SessionReport }) 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {mm.voice && (
             <div>
-              <h4 className="text-[10px] uppercase tracking-wide text-slate-500 mb-1.5">
+              <h4 className="text-[10px] uppercase tracking-wide text-on-surface-variant mb-1.5">
                 Voice Emotion Distribution
               </h4>
               <EmotionDistribution scores={mm.voice.distribution} />
@@ -111,7 +111,7 @@ export default function MultimodalReport({ report }: { report: SessionReport }) 
           )}
           {mm.text && (
             <div>
-              <h4 className="text-[10px] uppercase tracking-wide text-slate-500 mb-1.5">
+              <h4 className="text-[10px] uppercase tracking-wide text-on-surface-variant mb-1.5">
                 Text Emotion Distribution
               </h4>
               <EmotionDistribution scores={mm.text.distribution} />
@@ -121,7 +121,7 @@ export default function MultimodalReport({ report }: { report: SessionReport }) 
       )}
 
       {mm.voice_stress_average !== null && (
-        <p className="text-[11px] text-slate-500">
+        <p className="text-[11px] text-on-surface-variant">
           Average vocal-pattern composite: {(mm.voice_stress_average * 100).toFixed(0)}% — a
           descriptive summary of pitch/energy variability, speech rate and pauses, not a
           clinical stress measurement.
@@ -130,10 +130,10 @@ export default function MultimodalReport({ report }: { report: SessionReport }) 
 
       {mm.transcript_excerpt && (
         <div>
-          <h4 className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">
+          <h4 className="text-[10px] uppercase tracking-wide text-on-surface-variant mb-1">
             Transcript (most recent)
           </h4>
-          <p className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 max-h-32 overflow-y-auto">
+          <p className="text-xs text-on-surface-variant bg-surface-container-low border border-outline-variant rounded-lg px-3 py-2 max-h-32 overflow-y-auto">
             {mm.transcript_excerpt}
           </p>
         </div>

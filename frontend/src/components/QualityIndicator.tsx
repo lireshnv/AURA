@@ -18,13 +18,13 @@ export default function QualityIndicator({
   if (!quality) return null
 
   return (
-    <div className="mt-3 pt-3 border-t border-slate-200 space-y-1.5">
+    <div className="mt-3 pt-3 border-t border-outline-variant space-y-1.5">
       <div className="flex items-center justify-between text-[11px]">
-        <span className="flex items-center gap-1.5 text-slate-500">
+        <span className="flex items-center gap-1.5 text-on-surface-variant">
           <Gauge size={12} />
           Image quality
         </span>
-        <span className={`font-medium ${QUALITY_COLOR[quality.label] ?? "text-slate-500"}`}>
+        <span className={`font-medium ${QUALITY_COLOR[quality.label] ?? "text-on-surface-variant"}`}>
           {quality.overall.toFixed(0)}% · {quality.label}
         </span>
       </div>
@@ -37,14 +37,14 @@ export default function QualityIndicator({
       )}
 
       {evidence && (
-        <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-slate-500">
+        <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-on-surface-variant">
           <div className="flex justify-between">
             <span>smile</span>
-            <span className="text-slate-600">{evidence.smile.toFixed(0)}%</span>
+            <span className="text-on-surface-variant">{evidence.smile.toFixed(0)}%</span>
           </div>
           <div className="flex justify-between">
             <span>motion</span>
-            <span className="text-slate-600">{evidence.facial_motion.toFixed(0)}%</span>
+            <span className="text-on-surface-variant">{evidence.facial_motion.toFixed(0)}%</span>
           </div>
         </div>
       )}

@@ -9,11 +9,14 @@ import { useAvatarIdentity } from "./useAvatarIdentity"
 import { AnimationSelection, AvatarAnimationState, Expression } from "./types"
 
 /**
- * ONE unified companion module. Every avatar type (dog/cat/robot/plant/
+ * ONE unified companion module. Every avatar type (fox/dog/cat/rabbit/plant/
  * custom) renders through the same AvatarViewer canvas - switching the
  * dropdown swaps the model, never the surrounding UI or component tree.
- * There is no generic human avatar - the companion is always a pet or a
- * plant, which is what Daily Care's feed/water/streak actions act on.
+ * Fox and Plant are real downloaded/licensed glTF assets (Fox.glb,
+ * Plant.glb); Dog/Cat/Rabbit are custom-built 3D geometry, since no
+ * equivalent licensed asset exists for them. There is no generic human
+ * avatar - the companion is always a pet or a plant, which is what Daily
+ * Care's feed/water/streak actions act on.
  *
  * `drivenAnimation`/`amplitude` let a host (Daily Care, after a real
  * completed action) puppet the avatar from real state; the Animation
@@ -34,6 +37,7 @@ export default function AvatarModule({
   showSwitcher = false,
   expression: expressionProp,
   onExpressionChange,
+  forceAvatarType,
 }: {
   drivenAnimation?: AvatarAnimationState
   amplitude?: number
@@ -51,8 +55,15 @@ export default function AvatarModule({
    * Companion) instead of the module's own internal state. */
   expression?: Expression
   onExpressionChange?: (e: Expression) => void
+  /** Pins this instance to a specific avatar regardless of the user's saved
+   * companion identity - used by "Speak with Aura" so that serious 1:1
+   * conversation always shows the abstract Orb, never whichever pet the
+   * person picked for Daily Care/AI Companion. Hides the type dropdown too,
+   * since it isn't a choice in this context. */
+  forceAvatarType?: import("./types").AvatarType
 }) {
-  const { avatarType, setAvatarType } = useAvatarIdentity()
+  const { avatarType: sharedAvatarType, setAvatarType } = useAvatarIdentity()
+  const avatarType = forceAvatarType ?? sharedAvatarType
   const [internalExpression, setInternalExpression] = useState<Expression>("natural")
   const expression = expressionProp ?? internalExpression
   const setExpression = onExpressionChange ?? setInternalExpression
@@ -85,7 +96,7 @@ export default function AvatarModule({
             onClick={(e) => e.stopPropagation()}
             onPointerDown={(e) => e.stopPropagation()}
           >
-            <AvatarTypeDropdown value={avatarType} onChange={setAvatarType} />
+            {!forceAvatarType && <AvatarTypeDropdown value={avatarType} onChange={setAvatarType} />}
             <ExpressionSelector value={expression} onChange={setExpression} />
             <AnimationSelector value={animationSelection} onChange={setAnimationSelection} />
             <LipSyncController enabled={lipSyncEnabled} onChange={setLipSyncEnabled} />
@@ -102,15 +113,15 @@ export default function AvatarModule({
     <section className={`bg-surface-container-lowest rounded-[24px] card-shadow p-stack-md flex flex-col gap-4 ${className}`}>
       <h2 className="text-headline-md text-on-surface flex items-center gap-2">
         <span className="material-symbols-outlined text-primary">
-          {avatarType === "plant" ? "eco" : "pets"}
+          {forceAvatarType === "orb" ? "blur_on" : avatarType === "plant" ? "eco" : "pets"}
         </span>
-        Companion
+        {forceAvatarType ? "Aura" : "Companion"}
       </h2>
 
       <div className="w-full aspect-square max-h-[420px] mx-auto">{viewer}</div>
 
       <div className="flex flex-col gap-2.5 pt-1">
-        <AvatarTypeDropdown value={avatarType} onChange={setAvatarType} />
+        {!forceAvatarType && <AvatarTypeDropdown value={avatarType} onChange={setAvatarType} />}
         <ExpressionSelector value={expression} onChange={setExpression} />
         <AnimationSelector value={animationSelection} onChange={setAnimationSelection} />
         <LipSyncController enabled={lipSyncEnabled} onChange={setLipSyncEnabled} />

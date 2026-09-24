@@ -1,7 +1,23 @@
 import { useEffect, useState } from "react"
-import { TrendingUp, TrendingDown, Minus, Trash2, RefreshCw } from "lucide-react"
+import { TrendingUp, TrendingDown, Minus, Trash2, RefreshCw, Sparkles } from "lucide-react"
 import { HistoryResponse, HistorySession } from "../types"
 import { clearHistory, fetchHistory } from "../lib/api"
+import { SessionDistressTrendChart } from "./ui/charts"
+
+/** Same wording discipline as the spec: describe the observed signal and its
+ * direction, never a diagnosis. Built entirely from the real session-to-
+ * session trend already computed server-side (history_store.compute_trend) -
+ * no invented confidence score. */
+function insightText(trend: HistoryResponse["trend"] | undefined): string | null {
+  if (!trend || trend.direction === "insufficient") return null
+  if (trend.direction === "increasing") {
+    return `Observed distress-related signals have increased across your last ${trend.sessions_compared} sessions.`
+  }
+  if (trend.direction === "decreasing") {
+    return `Observed distress-related signals have eased across your last ${trend.sessions_compared} sessions.`
+  }
+  return `Observed distress-related signals have stayed steady across your last ${trend.sessions_compared} sessions.`
+}
 
 const LEVEL: Record<
   string,
@@ -131,20 +147,34 @@ function SessionCard({ session }: { session: HistorySession }) {
   )
 }
 
-export default function HistoryPage({ compact = false }: { compact?: boolean } = {}) {
+export default function HistoryPage({
+  compact = false,
+  auraId,
+  canClear = true,
+}: {
+  compact?: boolean
+  /** Viewing a specific case's history as an authorized counsellor/admin/
+   * guardian instead of the logged-in victim's own - same UI, just pointed
+   * at someone else's (authorization-checked server-side). */
+  auraId?: string
+  /** Clearing history is a victim's own privacy control - never offered
+   * when a staff role is looking at someone else's case. */
+  canClear?: boolean
+} = {}) {
   const [data, setData] = useState<HistoryResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [confirmClear, setConfirmClear] = useState(false)
 
   const load = async () => {
     setLoading(true)
-    setData(await fetchHistory())
+    setData(await fetchHistory(50, auraId))
     setLoading(false)
   }
 
   useEffect(() => {
     load()
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auraId])
 
   const handleClear = async () => {
     if (!confirmClear) {
@@ -175,7 +205,7 @@ export default function HistoryPage({ compact = false }: { compact?: boolean } =
             <RefreshCw size={13} />
             Refresh
           </button>
-          {data && data.sessions.length > 0 && (
+          {canClear && data && data.sessions.length > 0 && (
             <button
               onClick={handleClear}
               onBlur={() => setConfirmClear(false)}
@@ -196,6 +226,22 @@ export default function HistoryPage({ compact = false }: { compact?: boolean } =
         <h2 className="text-headline-md text-on-surface">Overall trend</h2>
         <TrendBadge trend={data?.trend} />
       </section>
+
+      {!loading && data && data.sessions.length >= 2 && (
+        <section className="rounded-[24px] bg-surface-container-lowest border border-outline-variant p-gutter card-shadow">
+          <h2 className="text-headline-md text-on-surface mb-1">Distress trend across sessions</h2>
+          <p className="text-label-sm text-on-surface-variant/70 mb-2">
+            Each point is one recorded session's distress score, oldest to newest.
+          </p>
+          <SessionDistressTrendChart sessions={data.sessions} />
+          {insightText(data.trend) && (
+            <div className="mt-3 pt-3 border-t border-outline-variant flex items-start gap-2">
+              <Sparkles size={14} className="text-primary shrink-0 mt-0.5" />
+              <p className="text-label-md text-on-surface">{insightText(data.trend)}</p>
+            </div>
+          )}
+        </section>
+      )}
 
       {loading ? (
         <p className="px-4 py-8 text-center text-body-md text-on-surface-variant">Loading history…</p>

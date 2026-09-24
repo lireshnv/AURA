@@ -209,21 +209,33 @@ def _language_instruction(language: Optional[str]) -> Optional[str]:
 VOICE_MODE_NOTE = (
     "The user is talking to you by voice right now, not reading text. Reply in "
     "1-3 short, natural spoken sentences - the way a person actually talks, not "
-    "a written paragraph. Only go longer if the user explicitly asks for detail "
-    "or a list of resources."
+    "a written paragraph. Often one short sentence is enough. No Markdown, no "
+    "bullet points, no lists - nothing that only makes sense written down. "
+    "Natural short reactions ('Yeah.' 'Wait, what happened?' 'Okay, that makes "
+    "sense.') are appropriate here in a way they wouldn't be in text. Only go "
+    "longer if the user explicitly asks for detail or a list of resources."
 )
 
 
-def _build_messages(
-    message: str, history: List[Dict], language: Optional[str], voice_mode: bool
-) -> List[Dict]:
+def get_system_prompt(language: Optional[str] = None, voice_mode: bool = True) -> str:
+    """Public accessor for Aura's exact personality prompt, so every realtime
+    path (currently: Gemini Live) uses the SAME assembled prompt as the Groq
+    companion rather than forking a second copy of it. Read fresh from disk
+    each call (via _load_system_prompt), same as the Groq path, so prompt
+    edits apply live everywhere at once."""
     system_prompt = _load_system_prompt()
     language_note = _language_instruction(language)
     if language_note:
         system_prompt = f"{system_prompt}\n\n## Language\n\n{language_note}"
     if voice_mode:
         system_prompt = f"{system_prompt}\n\n## Voice conversation\n\n{VOICE_MODE_NOTE}"
+    return system_prompt
 
+
+def _build_messages(
+    message: str, history: List[Dict], language: Optional[str], voice_mode: bool
+) -> List[Dict]:
+    system_prompt = get_system_prompt(language, voice_mode)
     messages: List[Dict] = [{"role": "system", "content": system_prompt}]
     messages.extend(history)
     messages.append({"role": "user", "content": message})

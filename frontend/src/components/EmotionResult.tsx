@@ -14,7 +14,7 @@ const EMOJI: Record<string, string> = {
 }
 
 const RELIABILITY_COLOR: Record<string, string> = {
-  low: "text-slate-500",
+  low: "text-on-surface-variant",
   moderate: "text-amber-600",
   good: "text-sky-400",
   high: "text-emerald-600",
@@ -39,12 +39,12 @@ export default function EmotionResult({ emotion }: { emotion?: EmotionResultType
         </motion.div>
       </AnimatePresence>
 
-      <div className="text-2xl font-bold uppercase tracking-wide text-slate-900 mt-2">
+      <div className="text-2xl font-bold uppercase tracking-wide text-on-surface mt-2">
         {isUncertain ? "Uncertain" : dominant}
       </div>
 
       {isUncertain ? (
-        <p className="text-xs text-slate-500 mt-1 text-center max-w-[240px]">
+        <p className="text-xs text-on-surface-variant mt-1 text-center max-w-[240px]">
           Evidence is insufficient to name an expression confidently.
         </p>
       ) : (
@@ -61,8 +61,8 @@ export default function EmotionResult({ emotion }: { emotion?: EmotionResultType
               { label: "Reaction", value: emotion.overall_reaction },
             ].map((row) => (
               <div key={row.label} className="flex justify-between text-xs">
-                <span className="text-slate-500">{row.label}</span>
-                <span className={`font-semibold ${row.color ?? "text-slate-700"}`}>
+                <span className="text-on-surface-variant">{row.label}</span>
+                <span className={`font-semibold ${row.color ?? "text-on-surface"}`}>
                   {row.value}
                 </span>
               </div>
@@ -72,9 +72,9 @@ export default function EmotionResult({ emotion }: { emotion?: EmotionResultType
       )}
 
       {emotion?.session_dominant && !isUncertain && emotion.session_dominant !== dominant && (
-        <div className="mt-3 w-full rounded-lg bg-slate-50 border border-slate-200 px-2.5 py-1.5 text-[11px] text-slate-500">
+        <div className="mt-3 w-full rounded-lg bg-surface-container-low border border-outline-variant px-2.5 py-1.5 text-[11px] text-on-surface-variant">
           Session overall:{" "}
-          <span className="text-slate-700 capitalize font-medium">
+          <span className="text-on-surface capitalize font-medium">
             {EMOJI[emotion.session_dominant] ?? ""} {emotion.session_dominant}
           </span>
         </div>
@@ -88,12 +88,12 @@ export default function EmotionResult({ emotion }: { emotion?: EmotionResultType
 
       {emotion?.reasons && emotion.reasons.length > 0 && (
         <div className="mt-3 w-full">
-          <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1.5">
+          <div className="text-[10px] uppercase tracking-wide text-on-surface-variant mb-1.5">
             Why {isUncertain ? "uncertain" : dominant}?
           </div>
           <ul className="space-y-1">
             {emotion.reasons.map((reason, i) => (
-              <li key={i} className="flex items-start gap-1.5 text-[11px] text-slate-500">
+              <li key={i} className="flex items-start gap-1.5 text-[11px] text-on-surface-variant">
                 <Check size={11} className="mt-0.5 shrink-0 text-emerald-600" />
                 <span>{reason}</span>
               </li>

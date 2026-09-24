@@ -60,7 +60,7 @@ export default function MultimodalTimeline({ points }: { points: MultimodalTimel
 
   if (data.length === 0) {
     return (
-      <div className="h-56 flex items-center justify-center text-sm text-slate-500">
+      <div className="h-56 flex items-center justify-center text-sm text-on-surface-variant">
         No multimodal data yet. Start camera and/or voice analysis.
       </div>
     )

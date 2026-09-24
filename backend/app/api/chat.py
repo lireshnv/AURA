@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, File, Header, HTTPException, Response, U
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from ..services import chat_safety, chatbot_service
+from ..services import chat_safety, chatbot_service, elevenlabs_tts
 
 logger = logging.getLogger("aura.chat_api")
 router = APIRouter(prefix="/api/chat", tags=["companion"])
@@ -51,6 +51,11 @@ class ChatRequest(BaseModel):
     # True for the voice conversation - asks the model for short, spoken-
     # style replies. The text Companion leaves this False.
     voice_mode: bool = False
+    # Caller-generated id for this conversational turn (the voice UI mints
+    # one per user utterance). Echoed back on every SSE event so the client
+    # can tell a stale, since-interrupted turn's events apart from the
+    # current one without relying only on fetch-abort timing.
+    turn_id: Optional[str] = None
 
 
 class SpeakRequest(BaseModel):
@@ -183,11 +188,13 @@ async def chat_stream_endpoint(payload: ChatRequest, aura_id: str = Depends(reso
     conversation's perceived latency - Aura's reply starts appearing (and can
     start being spoken sentence-by-sentence) before generation finishes.
 
-    Event shapes (one JSON object per `data:` line):
-      {"type": "session", "session_id": "..."}   - once, first
-      {"type": "delta", "text": "..."}            - zero or more
-      {"type": "safety", ...}                     - only if triggered
-      {"type": "done", "used_web_search": false}  - once, last
+    Event shapes (one JSON object per `data:` line), every event carrying the
+    same `turn_id` the caller sent (or a server-minted one if it didn't), so
+    a client can drop events from a turn it has since interrupted:
+      {"type": "session", "session_id": "...", "turn_id": "..."}  - once, first
+      {"type": "delta", "text": "...", "turn_id": "..."}          - zero or more
+      {"type": "safety", "turn_id": "...", ...}                   - only if triggered
+      {"type": "done", "turn_id": "...", "used_web_search": false} - once, last
 
     No tool-call support here (see chatbot_service.chat_stream's docstring) -
     the text Companion keeps using the non-streaming /api/chat for that.
@@ -203,6 +210,7 @@ async def chat_stream_endpoint(payload: ChatRequest, aura_id: str = Depends(reso
         )
 
     session_id = payload.session_id or str(uuid.uuid4())
+    turn_id = payload.turn_id or str(uuid.uuid4())
     key = (aura_id, session_id)
 
     safety = chat_safety.check_message(message)
@@ -211,14 +219,23 @@ async def chat_stream_endpoint(payload: ChatRequest, aura_id: str = Depends(reso
         history = list(_conversations[key])
 
     def _event(payload_obj: Dict) -> str:
-        return f"data: {json.dumps(payload_obj)}\n\n"
+        return f"data: {json.dumps({**payload_obj, 'turn_id': turn_id})}\n\n"
 
     def generate():
+        t_start = time.perf_counter()
+        first_delta_logged = False
         yield _event({"type": "session", "session_id": session_id})
         full_text = ""
         for delta in chatbot_service.chat_stream(
             message, history, language=payload.language, voice_mode=payload.voice_mode
         ):
+            if not first_delta_logged:
+                logger.info(
+                    "latency turn=%s first_llm_token_ms=%.0f",
+                    turn_id,
+                    (time.perf_counter() - t_start) * 1000,
+                )
+                first_delta_logged = True
             full_text += delta
             yield _event({"type": "delta", "text": delta})
 
@@ -237,6 +254,11 @@ async def chat_stream_endpoint(payload: ChatRequest, aura_id: str = Depends(reso
                     "resources": safety.resources,
                 }
             )
+        logger.info(
+            "latency turn=%s llm_stream_complete_ms=%.0f",
+            turn_id,
+            (time.perf_counter() - t_start) * 1000,
+        )
         yield _event({"type": "done", "used_web_search": False})
 
     return StreamingResponse(
@@ -330,3 +352,39 @@ async def speak(payload: SpeakRequest, aura_id: str = Depends(resolve_aura_id)):
     if not result.get("success"):
         raise HTTPException(status_code=503, detail="Speech synthesis is temporarily unavailable.")
     return Response(content=result["audio"], media_type=result["content_type"])
+
+
+@router.post("/speak/stream")
+async def speak_stream(payload: SpeakRequest, aura_id: str = Depends(resolve_aura_id)):
+    """Streaming text-to-speech with per-character timing, via ElevenLabs.
+
+    Returns newline-delimited JSON - each line is one chunk as ElevenLabs
+    generates it: {"audio_base64": "...", "alignment": {...}}. The client
+    starts playback on the first line rather than waiting for the whole
+    sentence, and uses `alignment` to highlight words against real audio
+    timing instead of a guessed one.
+
+    If ElevenLabs isn't configured or the call fails, the body streams zero
+    lines (200 status, empty NDJSON) rather than erroring - the client is
+    expected to detect "no audio arrived" and fall back to POST /speak
+    (Groq, non-streaming, no word timing) exactly as the fallback contract
+    in elevenlabs_tts.synthesize_stream_with_timestamps promises."""
+    if _rate_limited(aura_id):
+        raise HTTPException(status_code=429, detail="Please wait a moment before retrying.")
+
+    def generate():
+        t_start = time.perf_counter()
+        first_chunk_logged = False
+        for chunk in elevenlabs_tts.synthesize_stream_with_timestamps(payload.text):
+            if not first_chunk_logged:
+                logger.info(
+                    "latency tts_stream first_audio_chunk_ms=%.0f", (time.perf_counter() - t_start) * 1000
+                )
+                first_chunk_logged = True
+            yield json.dumps(chunk) + "\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

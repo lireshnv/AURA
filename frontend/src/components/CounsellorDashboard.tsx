@@ -1,34 +1,131 @@
 import { useEffect, useMemo, useState } from "react"
-import { ArrowDown, ArrowUp, Minus, UserCheck, Info, AlertTriangle, TrendingDown } from "lucide-react"
+import { ArrowDown, ArrowUp, Download, Minus, UserCheck, Info, AlertTriangle, TrendingDown, ClipboardCheck, MessageCircle, ShieldAlert, HeartHandshake, FileUp, Sparkles } from "lucide-react"
 import {
+  CaseDocumentOverviewRecord,
   CaseQueue,
+  CaseRow,
   CaseTypeOption,
+  InterventionOverviewRecord,
   InterventionRecord,
   RiskBand,
   SupportSuggestion,
   TwinResponse,
+  fetchCaseDocumentsOverview,
   fetchCaseQueue,
   fetchCaseType,
   fetchCaseTypes,
   fetchSupportHistory,
+  fetchSupportHistoryOverview,
   fetchSupportPathways,
   fetchTwin,
   recordSupportDecision,
   setCaseType,
 } from "../lib/auraApi"
 import { fetchAuditLog, recordReview, AuditEntryRow } from "../lib/riskApi"
+import { CalendarEventRecord, fetchOverviewCalendarEvents } from "../lib/calendarApi"
+import { downloadCsv } from "../lib/csvExport"
 import CaseDocuments from "./CaseDocuments"
+import CaseHub from "./CaseHub"
+import OverviewCalendar from "./OverviewCalendar"
+import SessionsBoard from "./SessionsBoard"
+import InterventionPipeline from "./InterventionPipeline"
+import DocumentsOverview from "./DocumentsOverview"
+import RightPanel from "./ui/RightPanel"
+import { CaseLandscapeChart, CaseRiskBarChart, EngagementBarChart, RiskDistributionChart } from "./ui/charts"
+import { SidebarGroup } from "./AppShell"
+import CounsellorCallPanel from "./CounsellorCallPanel"
+import HistoryProfilePage from "./HistoryProfilePage"
+import { VoiceCapabilities } from "../types"
 
+// Same generic, non-fabricated crisis guidance already used in SosButton.tsx
+// and Support.tsx - no invented hotline numbers or service directory here.
+const RESOURCE_REFERENCE = [
+  { label: "112 — Emergency services", detail: "Immediate danger: contact 112 (police/fire/medical, nationwide)." },
+  { label: "14416 — Tele-MANAS", detail: "India's national 24/7 mental health support and counselling helpline. Also 1-800-891-4416." },
+]
+
+// Sidebar IA note: "Victims" and "My Cases" would be near-duplicate lists
+// with the data this app actually has (CaseRow has no separate person
+// profile beyond the case itself), so there's one cases list, not two.
+// "Messages" isn't included - no messaging system exists in this codebase
+// yet, and this dashboard doesn't fabricate one.
 const TABS = [
   { key: "overview", label: "Overview" },
-  { key: "cases", label: "Cases" },
-  { key: "analysis", label: "Analysis" },
-  { key: "action", label: "Action Required" },
+  { key: "cases", label: "My Cases" },
+  { key: "casehub", label: "Case Hub" },
+  { key: "analysis", label: "Wellbeing" },
+  { key: "action", label: "Risk & Alerts" },
   { key: "care", label: "Care Plan" },
+  { key: "sessions", label: "Sessions" },
+  { key: "interventions", label: "Interventions" },
   { key: "followup", label: "Follow-up" },
+  { key: "calendar", label: "Calendar" },
+  { key: "documents", label: "Documents" },
   { key: "reports", label: "Reports" },
+  { key: "resources", label: "Resources" },
+  { key: "call", label: "AURA Call" },
+  { key: "history", label: "History & Profile" },
 ] as const
-type TabKey = (typeof TABS)[number]["key"]
+export type TabKey = (typeof TABS)[number]["key"]
+
+// Sidebar grouping of the same tabs above, rendered by AppShell itself as
+// this role's one and only sidebar (see App.tsx) - not a second nested
+// sidebar inside this page's own content.
+export const COUNSELLOR_SIDEBAR: SidebarGroup[] = [
+  { items: [{ key: "overview", label: "Overview", icon: "dashboard" }] },
+  { heading: "Cases", items: [
+    { key: "cases", label: "My Cases", icon: "folder_shared" },
+    { key: "casehub", label: "Case Hub", icon: "topic" },
+    { key: "followup", label: "Follow-up", icon: "event_repeat" },
+  ] },
+  { heading: "Wellbeing & Risk", items: [
+    { key: "analysis", label: "Wellbeing", icon: "graphic_eq" },
+    { key: "action", label: "Risk & Alerts", icon: "warning" },
+    { key: "care", label: "Care Plan", icon: "volunteer_activism" },
+  ] },
+  { heading: "Scheduling", items: [
+    { key: "sessions", label: "Sessions", icon: "event" },
+    { key: "calendar", label: "Calendar", icon: "calendar_month" },
+  ] },
+  { heading: "Records", items: [
+    { key: "interventions", label: "Interventions", icon: "support_agent" },
+    { key: "documents", label: "Documents", icon: "description" },
+  ] },
+  { heading: "Reports & Resources", items: [
+    { key: "reports", label: "Reports", icon: "bar_chart" },
+    { key: "resources", label: "Resources", icon: "menu_book" },
+  ] },
+  { heading: "More", items: [
+    { key: "call", label: "AURA Call", icon: "call" },
+    { key: "history", label: "History & Profile", icon: "history" },
+  ] },
+]
+
+/** Soonest upcoming (or most recent past) real CalendarEvent per case, keyed
+ * by aura_id - replaces the earlier seededRandom placeholder due-dates in
+ * Cases/Follow-up now that the shared calendar actually holds real events. */
+function nextEventByCase(events: CalendarEventRecord[]): Map<string, CalendarEventRecord> {
+  const now = Date.now()
+  const map = new Map<string, CalendarEventRecord>()
+  for (const e of events) {
+    if (e.status === "cancelled") continue
+    const existing = map.get(e.aura_id)
+    if (!existing) {
+      map.set(e.aura_id, e)
+      continue
+    }
+    const eFuture = new Date(e.starts_at).getTime() >= now
+    const exFuture = new Date(existing.starts_at).getTime() >= now
+    if (eFuture && !exFuture) {
+      map.set(e.aura_id, e) // any future event beats a past one
+    } else if (eFuture === exFuture) {
+      // Both future: keep the soonest. Both past: keep the most recent.
+      const better = eFuture ? e.starts_at < existing.starts_at : e.starts_at > existing.starts_at
+      if (better) map.set(e.aura_id, e)
+    }
+  }
+  return map
+}
 
 const BAND_STYLE: Record<RiskBand, string> = {
   GREEN: "bg-secondary-container/20 text-on-secondary-container",
@@ -44,56 +141,6 @@ const DIRECTION_ICON = {
   up: <ArrowUp size={11} className="text-primary" />,
   down: <ArrowDown size={11} className="text-tertiary" />,
   neutral: <Minus size={11} className="text-on-surface-variant" />,
-}
-
-/** A seed generated once per login session (not per render/tab-switch), so
- *  the synthetic demo values below look fresh each time a counsellor signs
- *  in, but don't jump around every time a component re-renders while they're
- *  actually reviewing a case. Cleared automatically when the browser session
- *  ends (sessionStorage), and can be forced to rotate on explicit login via
- *  resetSyntheticDataSeed(). */
-const SESSION_SEED_KEY = "aura_synthetic_seed"
-
-function getSessionSeed(): string {
-  try {
-    let seed = sessionStorage.getItem(SESSION_SEED_KEY)
-    if (!seed) {
-      seed = Math.random().toString(36).slice(2) + Date.now().toString(36)
-      sessionStorage.setItem(SESSION_SEED_KEY, seed)
-    }
-    return seed
-  } catch {
-    return "fallback-seed"
-  }
-}
-
-/** Call right after a successful login so each new session gets its own
- *  synthetic values instead of inheriting the previous session's seed. */
-export function resetSyntheticDataSeed(): void {
-  try {
-    sessionStorage.setItem(
-      SESSION_SEED_KEY,
-      Math.random().toString(36).slice(2) + Date.now().toString(36)
-    )
-  } catch {
-    /* sessionStorage unavailable - demo values just keep the prior seed */
-  }
-}
-
-/** Deterministic pseudo-random generator seeded by aura_id + the current
- *  login session, so demo values used to fill in fields the backend doesn't
- *  track yet (care-plan goals, follow-up due dates) stay stable while
- *  browsing this session, but differ from one login to the next. */
-function seededRandom(seedInput: string) {
-  const seed = seedInput + "::" + getSessionSeed()
-  let h = 0
-  for (let i = 0; i < seed.length; i++) h = (Math.imul(31, h) + seed.charCodeAt(i)) | 0
-  return () => {
-    h = (Math.imul(h ^ (h >>> 15), 1 | h) + 0x6d2b79f5) | 0
-    let t = Math.imul(h ^ (h >>> 7), 61 | h)
-    t = (t ^ (t + Math.imul(t ^ (t >>> 7), 1 | t))) >>> 0
-    return (t ^ (t >>> 14)) / 4294967296
-  }
 }
 
 function StatTile({ label, value, tone }: { label: string; value: number; tone?: string }) {
@@ -160,11 +207,13 @@ function DeviationChart({ twin }: { twin: TwinResponse["twin"] }) {
 function OverviewTab({
   queue,
   audit,
-  onOpenCase,
+  nextEvents,
+  onInspect,
 }: {
   queue: CaseQueue | null
   audit: AuditEntryRow[]
-  onOpenCase: (id: string, tab: TabKey) => void
+  nextEvents: Map<string, CalendarEventRecord>
+  onInspect: (auraId: string) => void
 }) {
   if (!queue || !queue.success) {
     return <Card><p className="text-body-md text-on-surface-variant">{queue?.error ?? "Loading…"}</p></Card>
@@ -172,50 +221,172 @@ function OverviewTab({
   const attention = queue.cases
     .filter((c) => c.risk_band !== "GREEN" || c.human_review_required)
     .sort((a, b) => b.priority - a.priority)
+  const now = new Date()
+  const todayEvents = Array.from(nextEvents.values())
+    .filter((e) => new Date(e.starts_at).toDateString() === now.toDateString())
+    .sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime())
+  const upcomingEvents = Array.from(nextEvents.entries())
+    .filter(([, e]) => new Date(e.starts_at) > now && new Date(e.starts_at).toDateString() !== now.toDateString())
+    .sort((a, b) => new Date(a[1].starts_at).getTime() - new Date(b[1].starts_at).getTime())
+    .slice(0, 3)
+
+  // AURA Insight: the single most escalation-worthy case right now, using
+  // fields already computed server-side (escalation_risk/rationale) - no
+  // invented confidence score, just a pointer to what to look at first.
+  const insightCase = [...queue.cases]
+    .filter((c) => c.escalation_risk === "high" || c.escalation_risk === "elevated")
+    .sort((a, b) => (a.escalation_risk === b.escalation_risk ? b.risk_score - a.risk_score : a.escalation_risk === "high" ? -1 : 1))[0]
 
   return (
     <div className="flex flex-col gap-stack-md">
-      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-        <StatTile label="Total" value={queue.summary.total} />
-        <StatTile label="Green" value={queue.summary.green} tone="text-secondary" />
-        <StatTile label="Amber" value={queue.summary.amber} tone="text-primary" />
-        <StatTile label="Red" value={queue.summary.red} tone="text-error" />
-        <StatTile label="Pending review" value={queue.summary.pending_review} />
-        <StatTile label="Needs follow-up" value={queue.summary.needs_followup} />
+      {/* Compact operational strip: one hero number + dense stat chips in a
+          single row, not eight equal-weight cards. */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="sm:w-64 shrink-0 rounded-[24px] bg-gradient-to-br from-error-container/25 to-transparent border border-error/20 px-5 py-4 flex flex-col justify-center">
+          <span className="text-label-sm uppercase tracking-wide text-error font-semibold">Needs attention</span>
+          <span className="text-display-lg text-error tabular-nums leading-none mt-1">{attention.length}</span>
+          <span className="text-label-sm text-on-surface-variant mt-1">of {queue.summary.total} assigned cases</span>
+        </div>
+        <div className="flex-1 flex flex-wrap gap-2 items-center rounded-[24px] bg-surface-container-lowest border border-outline-variant px-4 py-3">
+          {[
+            ["Green", queue.summary.green, "text-secondary"],
+            ["Amber", queue.summary.amber, "text-primary"],
+            ["Red", queue.summary.red, "text-error"],
+            ["Today", todayEvents.length, "text-on-surface"],
+            ["Pending review", queue.summary.pending_review, "text-on-surface"],
+            ["Follow-up", queue.summary.needs_followup, "text-on-surface"],
+            ["Improving", queue.summary.improving, "text-secondary"],
+          ].map(([label, value, tone]) => (
+            <div key={label as string} className="flex items-baseline gap-1.5 px-3 py-1 rounded-full bg-surface-container">
+              <span className={`text-label-lg font-bold tabular-nums ${tone}`}>{value}</span>
+              <span className="text-label-sm text-on-surface-variant">{label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Main intelligence area (7) + attention list (5). */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-gutter">
+        <Card className="lg:col-span-7">
+          <h3 className="text-label-md font-semibold text-on-surface mb-1">Case landscape</h3>
+          <p className="text-label-sm text-on-surface-variant/70 mb-2">
+            Wellbeing vs engagement · bubble size = recorded activity · click to open
+          </p>
+          <CaseLandscapeChart cases={queue.cases} onSelect={onInspect} />
+        </Card>
+        <Card className="lg:col-span-5 flex flex-col">
+          <h3 className="text-label-md font-semibold text-on-surface mb-1">What needs my attention?</h3>
+          <p className="text-label-sm text-on-surface-variant/70 mb-2">Highest priority first.</p>
+          {attention.length === 0 ? (
+            <p className="text-body-md text-on-surface-variant py-4">Nothing needs attention right now.</p>
+          ) : (
+            <div className="space-y-2 flex-1 overflow-y-auto max-h-[300px] pr-0.5">
+              {attention.map((c) => (
+                <button
+                  key={c.aura_id}
+                  onClick={() => onInspect(c.aura_id)}
+                  className={`w-full flex items-center justify-between gap-3 rounded-xl border-l-4 ${BAND_BORDER[c.risk_band]} bg-surface-container px-3 py-2.5 text-left hover:bg-surface-container-low transition-colors`}
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-label-md font-semibold text-on-surface">{c.aura_id}</span>
+                      <span className={`text-label-sm px-2 py-0.5 rounded-full ${BAND_STYLE[c.risk_band]}`}>{c.risk_band}</span>
+                    </div>
+                    <p className="text-label-sm text-on-surface-variant truncate">{c.routing}</p>
+                  </div>
+                  <TrendChip trend={c.trend} />
+                </button>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {/* Risk by case (7) + Today/Upcoming (5). */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-gutter">
+        <Card className="lg:col-span-7">
+          <h3 className="text-label-md font-semibold text-on-surface mb-1">Risk by case</h3>
+          <p className="text-label-sm text-on-surface-variant/70 mb-2">Click a bar to open that case</p>
+          <CaseRiskBarChart cases={queue.cases} onSelect={onInspect} />
+        </Card>
+        <Card className="lg:col-span-5">
+          <h3 className="text-label-md font-semibold text-on-surface mb-2">Today</h3>
+          {todayEvents.length === 0 ? (
+            <p className="text-label-sm text-on-surface-variant/60 py-2">Nothing scheduled today.</p>
+          ) : (
+            <div className="space-y-1.5 mb-3">
+              {todayEvents.map((e) => (
+                <div key={e.id} className="flex items-center gap-2 text-label-sm border-b border-outline-variant/40 pb-1.5">
+                  <span className="tabular-nums text-on-surface font-semibold w-12 shrink-0">
+                    {new Date(e.starts_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                  <span className="text-on-surface-variant truncate">{e.event_type.replace(/_/g, " ")}</span>
+                  <span className="text-on-surface-variant/60 ml-auto shrink-0">{e.aura_id}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {upcomingEvents.length > 0 && (
+            <>
+              <h4 className="text-label-sm font-semibold text-on-surface-variant uppercase tracking-wide mt-1 mb-1.5">Upcoming</h4>
+              <div className="space-y-1">
+                {upcomingEvents.map(([auraId, e]) => (
+                  <div key={e.id} className="flex items-center gap-2 text-label-sm">
+                    <span className="text-on-surface-variant/70 tabular-nums shrink-0">
+                      {new Date(e.starts_at).toLocaleDateString([], { month: "short", day: "numeric" })}
+                    </span>
+                    <span className="text-on-surface truncate">{e.event_type.replace(/_/g, " ")}</span>
+                    <span className="text-on-surface-variant/60 ml-auto shrink-0">{auraId}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </Card>
+      </div>
+
+      {/* Case distribution (5) + AURA Insight (7). */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-gutter">
+        <Card className="lg:col-span-5">
+          <h3 className="text-label-md font-semibold text-on-surface mb-1">Case distribution</h3>
+          <p className="text-label-sm text-on-surface-variant/70 mb-2">By current risk band</p>
+          <RiskDistributionChart green={queue.summary.green} amber={queue.summary.amber} red={queue.summary.red} />
+        </Card>
+        <Card className="lg:col-span-7">
+          <h3 className="text-label-md font-semibold text-on-surface flex items-center gap-1.5 mb-1">
+            <Sparkles size={14} className="text-primary" />
+            AURA Insight
+          </h3>
+          {!insightCase ? (
+            <p className="text-label-sm text-on-surface-variant/70 py-3">No notable change detected across your caseload right now.</p>
+          ) : (
+            <div className="text-label-sm space-y-2 mt-2">
+              <p className="text-on-surface">
+                <span className="font-semibold">{insightCase.aura_id}</span> shows a change worth reviewing.
+              </p>
+              <div>
+                <span className="text-on-surface-variant/70 uppercase tracking-wide text-[10px] font-semibold">Observed</span>
+                <p className="text-on-surface">{insightCase.escalation_rationale || "Escalation risk elevated based on recent signals."}</p>
+              </div>
+              <div>
+                <span className="text-on-surface-variant/70 uppercase tracking-wide text-[10px] font-semibold">Suggested review</span>
+                <p className="text-on-surface">Open the case in Risk &amp; Alerts to confirm and decide next steps.</p>
+              </div>
+              <button
+                onClick={() => onInspect(insightCase.aura_id)}
+                className="mt-1 text-label-sm text-primary font-semibold hover:underline"
+              >
+                Open case →
+              </button>
+            </div>
+          )}
+        </Card>
       </div>
 
       <Card>
-        <h3 className="text-headline-md text-on-surface mb-1">What needs my attention?</h3>
-        <p className="text-label-sm text-on-surface-variant/70 mb-3">
-          Cases flagged amber/red or requiring human review, highest priority first.
-        </p>
-        {attention.length === 0 ? (
-          <p className="text-body-md text-on-surface-variant py-4">Nothing needs attention right now.</p>
-        ) : (
-          <div className="space-y-2">
-            {attention.map((c) => (
-              <button
-                key={c.aura_id}
-                onClick={() => onOpenCase(c.aura_id, "action")}
-                className={`w-full flex items-center justify-between gap-3 rounded-xl border-l-4 ${BAND_BORDER[c.risk_band]} bg-surface-container px-3 py-2.5 text-left hover:bg-surface-container-low transition-colors`}
-              >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-label-md font-semibold text-on-surface">{c.aura_id}</span>
-                    <span className={`text-label-sm px-2 py-0.5 rounded-full ${BAND_STYLE[c.risk_band]}`}>{c.risk_band}</span>
-                    {c.human_review_required && (
-                      <span className="text-label-sm text-error flex items-center gap-1">
-                        <AlertTriangle size={11} /> Review required
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-label-sm text-on-surface-variant truncate">{c.routing}</p>
-                </div>
-                <TrendChip trend={c.trend} />
-              </button>
-            ))}
-          </div>
-        )}
+        <h3 className="text-label-md font-semibold text-on-surface mb-1">Engagement</h3>
+        <p className="text-label-sm text-on-surface-variant/70 mb-2">Check-ins in the last 7 days, lowest first</p>
+        <EngagementBarChart cases={queue.cases} />
       </Card>
 
       <Card>
@@ -223,14 +394,26 @@ function OverviewTab({
         {audit.length === 0 ? (
           <p className="text-body-md text-on-surface-variant/60 py-2">No recorded actions yet.</p>
         ) : (
-          <div className="space-y-1.5">
-            {audit.slice(0, 8).map((a) => (
-              <div key={a.id} className="flex items-center justify-between text-label-sm border-b border-outline-variant/40 pb-1.5">
-                <span className="text-on-surface">{a.action.replace(/_/g, " ")}</span>
-                <span className="text-on-surface-variant">{a.aura_id}</span>
-                <span className="text-on-surface-variant/70">{new Date(a.timestamp).toLocaleString()}</span>
-              </div>
-            ))}
+          <div className="space-y-1">
+            {audit.slice(0, 8).map((a) => {
+              const Icon = a.action.includes("review")
+                ? ClipboardCheck
+                : a.action.includes("escalat")
+                ? ShieldAlert
+                : a.action.includes("support") || a.action.includes("intervention")
+                ? HeartHandshake
+                : a.action.includes("document")
+                ? FileUp
+                : MessageCircle
+              return (
+                <div key={a.id} className="flex items-center gap-2.5 text-label-sm border-b border-outline-variant/40 py-1.5 last:border-0">
+                  <Icon size={13} className="text-on-surface-variant/70 shrink-0" />
+                  <span className="text-on-surface capitalize">{a.action.replace(/_/g, " ")}</span>
+                  <span className="text-on-surface-variant">{a.aura_id}</span>
+                  <span className="text-on-surface-variant/60 ml-auto shrink-0">{new Date(a.timestamp).toLocaleString()}</span>
+                </div>
+              )
+            })}
           </div>
         )}
       </Card>
@@ -241,11 +424,26 @@ function OverviewTab({
 // ---------------------------------------------------------------------------
 // Cases
 // ---------------------------------------------------------------------------
+/** Renders a real CalendarEvent's date, or "None scheduled" - never a
+ * placeholder. `overdue` styling only applies to a genuinely past event. */
+function NextEventCell({ event }: { event: CalendarEventRecord | undefined }) {
+  if (!event) return <span className="text-on-surface-variant/60">None scheduled</span>
+  const days = Math.round((new Date(event.starts_at).getTime() - Date.now()) / 86400000)
+  const overdue = days < 0
+  return (
+    <span className={overdue ? "text-error" : "text-on-surface-variant"} title={event.title}>
+      {overdue ? `Overdue ${Math.abs(days)}d` : days === 0 ? "Today" : `In ${days}d`}
+    </span>
+  )
+}
+
 function CasesTab({
   queue,
+  nextEvents,
   onOpenCase,
 }: {
   queue: CaseQueue | null
+  nextEvents: Map<string, CalendarEventRecord>
   onOpenCase: (id: string, tab: TabKey) => void
 }) {
   if (!queue) return <Card><p className="text-body-md text-on-surface-variant">Loading cases…</p></Card>
@@ -262,41 +460,41 @@ function CasesTab({
             <th className="py-2 pr-3">Risk</th>
             <th className="py-2 pr-3">Trend</th>
             <th className="py-2 pr-3">Last contact</th>
-            <th className="py-2 pr-3">Next follow-up</th>
+            <th className="py-2 pr-3">Next event</th>
             <th className="py-2 pr-3"></th>
           </tr>
         </thead>
         <tbody>
-          {queue.cases.map((c) => {
-            const rnd = seededRandom(c.aura_id)
-            const dueInDays = Math.floor(rnd() * 10) - 3
-            return (
-              <tr key={c.aura_id} className="border-b border-outline-variant/40 hover:bg-surface-container-low">
-                <td className="py-2 pr-3 font-semibold text-on-surface">{c.aura_id}</td>
-                <td className="py-2 pr-3">
-                  <span className={`text-label-sm px-2 py-0.5 rounded-full ${BAND_STYLE[c.risk_band]}`}>
-                    {c.human_review_required ? "Review required" : "Monitoring"}
-                  </span>
-                </td>
-                <td className="py-2 pr-3 tabular-nums">{c.risk_score.toFixed(0)} ({c.risk_band})</td>
-                <td className="py-2 pr-3"><TrendChip trend={c.trend} /></td>
-                <td className="py-2 pr-3 text-on-surface-variant">
-                  {c.days_since_checkin === null ? "—" : `${c.days_since_checkin.toFixed(0)}d ago`}
-                </td>
-                <td className={`py-2 pr-3 ${dueInDays < 0 ? "text-error" : "text-on-surface-variant"}`}>
-                  {dueInDays < 0 ? `Overdue ${Math.abs(dueInDays)}d` : `In ${dueInDays}d`}
-                </td>
-                <td className="py-2 pr-3">
-                  <button
-                    onClick={() => onOpenCase(c.aura_id, "analysis")}
-                    className="text-label-sm text-primary font-semibold hover:underline"
-                  >
-                    Open →
-                  </button>
-                </td>
-              </tr>
-            )
-          })}
+          {queue.cases.map((c) => (
+            <tr key={c.aura_id} className="border-b border-outline-variant/40 hover:bg-surface-container-low">
+              <td className="py-2 pr-3 font-semibold text-on-surface">{c.aura_id}</td>
+              <td className="py-2 pr-3">
+                <span className={`text-label-sm px-2 py-0.5 rounded-full ${BAND_STYLE[c.risk_band]}`}>
+                  {c.human_review_required ? "Review required" : "Monitoring"}
+                </span>
+              </td>
+              <td className="py-2 pr-3 tabular-nums">{c.risk_score.toFixed(0)} ({c.risk_band})</td>
+              <td className="py-2 pr-3"><TrendChip trend={c.trend} /></td>
+              <td className="py-2 pr-3 text-on-surface-variant">
+                {c.days_since_checkin === null ? "—" : `${c.days_since_checkin.toFixed(0)}d ago`}
+              </td>
+              <td className="py-2 pr-3"><NextEventCell event={nextEvents.get(c.aura_id)} /></td>
+              <td className="py-2 pr-3 flex gap-3">
+                <button
+                  onClick={() => onOpenCase(c.aura_id, "casehub")}
+                  className="text-label-sm text-primary font-semibold hover:underline"
+                >
+                  Case Hub →
+                </button>
+                <button
+                  onClick={() => onOpenCase(c.aura_id, "analysis")}
+                  className="text-label-sm text-on-surface-variant font-semibold hover:underline"
+                >
+                  Analysis →
+                </button>
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </Card>
@@ -506,12 +704,14 @@ function ActionRequiredTab({
   onSelect,
   decisions,
   setDecisions,
+  onDecided,
 }: {
   queue: CaseQueue | null
   selected: string | null
   onSelect: (id: string) => void
   decisions: Record<string, DecisionState>
   setDecisions: (fn: (p: Record<string, DecisionState>) => Record<string, DecisionState>) => void
+  onDecided?: () => void
 }) {
   const [pathways, setPathways] = useState<SupportSuggestion[] | null>(null)
   const [modifyOpen, setModifyOpen] = useState<string | null>(null)
@@ -544,6 +744,7 @@ function ActionRequiredTab({
     setDecisions((p) => ({ ...p, [key(pathway)]: { status: action, note } }))
     setModifyOpen(null)
     setModifyText("")
+    onDecided?.()
   }
 
   return (
@@ -735,17 +936,28 @@ function CarePlanTab({
 // ---------------------------------------------------------------------------
 // Follow-up
 // ---------------------------------------------------------------------------
-function FollowUpTab({ queue, audit }: { queue: CaseQueue | null; audit: AuditEntryRow[] }) {
+function FollowUpTab({
+  queue,
+  audit,
+  nextEvents,
+  onOpenCalendar,
+}: {
+  queue: CaseQueue | null
+  audit: AuditEntryRow[]
+  nextEvents: Map<string, CalendarEventRecord>
+  onOpenCalendar: () => void
+}) {
   if (!queue?.success) return <Card><p className="text-body-md text-on-surface-variant">Loading…</p></Card>
-  const rows = queue.cases.map((c) => {
-    const rnd = seededRandom(c.aura_id + ":followup")
-    const dueInDays = Math.floor(rnd() * 12) - 4
-    const escalatedRecently = audit.some((a) => a.aura_id === c.aura_id && a.action === "follow_up_requested")
-    return { c, dueInDays, escalatedRecently }
-  })
-  const overdue = rows.filter((r) => r.dueInDays < 0)
-  const upcoming = rows.filter((r) => r.dueInDays >= 0)
+  const now = Date.now()
+  const rows = queue.cases
+    .map((c) => ({ c, event: nextEvents.get(c.aura_id) }))
+    .filter((r): r is { c: (typeof queue.cases)[number]; event: CalendarEventRecord } => !!r.event)
+  const overdue = rows.filter((r) => new Date(r.event.starts_at).getTime() < now)
+  const upcoming = rows.filter((r) => new Date(r.event.starts_at).getTime() >= now)
+  const unscheduled = queue.cases.filter((c) => !nextEvents.has(c.aura_id))
   const completed = audit.filter((a) => a.action === "risk_reviewed" || a.action === "continue_monitoring")
+
+  const daysOf = (iso: string) => Math.round((new Date(iso).getTime() - now) / 86400000)
 
   return (
     <div className="flex flex-col gap-stack-md">
@@ -755,8 +967,8 @@ function FollowUpTab({ queue, audit }: { queue: CaseQueue | null; audit: AuditEn
           <div className="space-y-1.5">
             {overdue.map((r) => (
               <div key={r.c.aura_id} className="flex justify-between text-label-md">
-                <span>{r.c.aura_id} {r.escalatedRecently && <span className="text-error text-label-sm">(escalated)</span>}</span>
-                <span className="text-error">{Math.abs(r.dueInDays)}d overdue</span>
+                <span>{r.c.aura_id} <span className="text-on-surface-variant text-label-sm">— {r.event.title}</span></span>
+                <span className="text-error">{Math.abs(daysOf(r.event.starts_at))}d overdue</span>
               </div>
             ))}
           </div>
@@ -768,9 +980,26 @@ function FollowUpTab({ queue, audit }: { queue: CaseQueue | null; audit: AuditEn
           <div className="space-y-1.5">
             {upcoming.map((r) => (
               <div key={r.c.aura_id} className="flex justify-between text-label-md">
-                <span>{r.c.aura_id}</span>
-                <span className="text-on-surface-variant">in {r.dueInDays}d</span>
+                <span>{r.c.aura_id} <span className="text-on-surface-variant text-label-sm">— {r.event.title}</span></span>
+                <span className="text-on-surface-variant">in {daysOf(r.event.starts_at)}d</span>
               </div>
+            ))}
+          </div>
+        )}
+      </Card>
+      <Card>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-headline-md text-on-surface">Not yet scheduled</h3>
+          <button onClick={onOpenCalendar} className="text-label-sm text-primary font-semibold hover:underline">
+            Schedule in Calendar →
+          </button>
+        </div>
+        {unscheduled.length === 0 ? <p className="text-label-md text-on-surface-variant/60">Every case has a next date on the calendar.</p> : (
+          <div className="flex flex-wrap gap-1.5">
+            {unscheduled.map((c) => (
+              <span key={c.aura_id} className="text-label-sm px-2 py-1 rounded-full bg-surface-container text-on-surface-variant">
+                {c.aura_id}
+              </span>
             ))}
           </div>
         )}
@@ -821,14 +1050,68 @@ function ReportsTab({
     .filter(([k]) => k.startsWith(`${selected}::`))
     .map(([k, v]) => ({ pathway: k.split("::")[1], ...v }))
 
+  const exportCaseload = () => {
+    if (!queue?.success) return
+    downloadCsv(
+      `aura-caseload-${new Date().toISOString().slice(0, 10)}.csv`,
+      queue.cases.map((c) => ({
+        aura_id: c.aura_id,
+        risk_band: c.risk_band,
+        risk_score: c.risk_score.toFixed(1),
+        trend: c.trend_label,
+        checkins_7d: c.checkins_last_7d,
+        sessions: c.counts.sessions,
+        days_since_checkin: c.days_since_checkin ?? "",
+        human_review_required: c.human_review_required ? "yes" : "no",
+        routing: c.routing,
+      }))
+    )
+  }
+
+  const exportCaseReport = () => {
+    if (!row) return
+    downloadCsv(`aura-case-${row.aura_id}.csv`, [
+      {
+        aura_id: row.aura_id,
+        risk_band: row.risk_band,
+        risk_score: row.risk_score.toFixed(1),
+        trend: row.trend_label,
+        routing: row.routing,
+        checkins: row.counts.checkins,
+        sessions: row.counts.sessions,
+        analysis_confidence: data?.has_data ? data.risk.confidence.toFixed(0) : "",
+        contributing_factors: data?.has_data ? data.risk.contributing_factors.length : "",
+        actions_this_session: interventions.map((i) => `${i.pathway}:${i.status}`).join("; "),
+        generated_at: new Date().toISOString(),
+      },
+    ])
+  }
+
   return (
     <div className="flex flex-col gap-stack-md">
-      <CasePicker queue={queue} selected={selected} onSelect={onSelect} />
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <CasePicker queue={queue} selected={selected} onSelect={onSelect} />
+        <button
+          onClick={exportCaseload}
+          disabled={!queue?.success || queue.cases.length === 0}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-outline-variant text-label-sm text-on-surface hover:bg-surface-container-low disabled:opacity-50"
+        >
+          <Download size={13} /> Export caseload (CSV)
+        </button>
+      </div>
       {!selected || !row ? (
         <Card><p className="text-body-md text-on-surface-variant">Select a case above to generate its report.</p></Card>
       ) : (
         <Card>
-          <h2 className="text-headline-lg text-on-surface mb-1">Case report — {selected}</h2>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <h2 className="text-headline-lg text-on-surface">Case report — {selected}</h2>
+            <button
+              onClick={exportCaseReport}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-outline-variant text-label-sm text-on-surface hover:bg-surface-container-low shrink-0"
+            >
+              <Download size={13} /> Export (CSV)
+            </button>
+          </div>
           <p className="text-label-sm text-on-surface-variant/70 mb-4">Generated {new Date().toLocaleString()}</p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-gutter">
@@ -877,15 +1160,94 @@ function ReportsTab({
   )
 }
 
+/** The "Aura Intelligence Panel" content for a case, opened from Overview's
+ * charts/attention list without leaving the page. Every field is real data
+ * already loaded for the queue/calendar - nothing fetched or fabricated
+ * specially for the panel. */
+function CaseInspectorPanel({
+  caseRow,
+  nextEvent,
+  onOpenCaseHub,
+  onOpenAnalysis,
+  onOpenCalendar,
+}: {
+  caseRow: CaseRow
+  nextEvent: CalendarEventRecord | undefined
+  onOpenCaseHub: () => void
+  onOpenAnalysis: () => void
+  onOpenCalendar: () => void
+}) {
+  return (
+    <div className="flex flex-col gap-stack-sm">
+      <div className="flex items-center gap-2">
+        <span className={`text-label-sm px-2 py-0.5 rounded-full ${BAND_STYLE[caseRow.risk_band]}`}>{caseRow.risk_band}</span>
+        <TrendChip trend={caseRow.trend} />
+        {caseRow.human_review_required && (
+          <span className="text-label-sm text-error flex items-center gap-1">
+            <AlertTriangle size={11} /> Review required
+          </span>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <StatTile label="Risk score" value={Math.round(caseRow.risk_score)} />
+        <StatTile label="Priority" value={caseRow.priority} />
+        <StatTile label="Check-ins (7d)" value={caseRow.checkins_last_7d} />
+        <StatTile label="Sessions" value={caseRow.counts.sessions} />
+      </div>
+      <div>
+        <p className="text-label-sm font-semibold text-on-surface-variant uppercase tracking-wide mb-1">Routing</p>
+        <p className="text-label-md text-on-surface">{caseRow.routing}</p>
+      </div>
+      <div>
+        <p className="text-label-sm font-semibold text-on-surface-variant uppercase tracking-wide mb-1">Next event</p>
+        <NextEventCell event={nextEvent} />
+        {nextEvent && <p className="text-label-sm text-on-surface mt-0.5">{nextEvent.title}</p>}
+      </div>
+      <div>
+        <p className="text-label-sm font-semibold text-on-surface-variant uppercase tracking-wide mb-2">Quick actions</p>
+        <div className="flex flex-col gap-1.5">
+          <button onClick={onOpenCaseHub} className="w-full text-left px-3 py-2 rounded-lg bg-primary text-on-primary text-label-md font-semibold">
+            Open Case Hub
+          </button>
+          <button onClick={onOpenAnalysis} className="w-full text-left px-3 py-2 rounded-lg border border-outline-variant text-on-surface text-label-md">
+            View analysis
+          </button>
+          <button onClick={onOpenCalendar} className="w-full text-left px-3 py-2 rounded-lg border border-outline-variant text-on-surface text-label-md">
+            Schedule / view calendar
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Root
 // ---------------------------------------------------------------------------
-export default function CounsellorDashboard() {
-  const [tab, setTab] = useState<TabKey>("overview")
+export default function CounsellorDashboard({
+  voiceCapabilities,
+  backendOnline,
+  tab,
+  onTabChange: setTab,
+  onAlertCountChange,
+}: {
+  voiceCapabilities: VoiceCapabilities | null
+  backendOnline: boolean | null
+  tab: TabKey
+  onTabChange: (tab: TabKey) => void
+  onAlertCountChange?: (count: number) => void
+}) {
   const [queue, setQueue] = useState<CaseQueue | null>(null)
   const [audit, setAudit] = useState<AuditEntryRow[]>([])
   const [selected, setSelected] = useState<string | null>(null)
   const [decisions, setDecisions] = useState<Record<string, DecisionState>>({})
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEventRecord[]>([])
+  const [interventions, setInterventions] = useState<InterventionOverviewRecord[] | null>(null)
+  const [documents, setDocuments] = useState<CaseDocumentOverviewRecord[] | null>(null)
+  const [inspectId, setInspectId] = useState<string | null>(null)
+
+  const loadCalendar = () => fetchOverviewCalendarEvents().then((r) => setCalendarEvents(r?.events ?? []))
+  const loadInterventions = () => fetchSupportHistoryOverview().then((r) => setInterventions(r?.interventions ?? []))
 
   useEffect(() => {
     fetchCaseQueue().then((q) => {
@@ -893,17 +1255,25 @@ export default function CounsellorDashboard() {
       if (q?.success && q.cases.length > 0) setSelected((s) => s ?? q.cases[0].aura_id)
     })
     fetchAuditLog(50).then((d) => setAudit(d?.entries ?? []))
+    loadCalendar()
+    loadInterventions()
+    fetchCaseDocumentsOverview().then((r) => setDocuments(r?.documents ?? []))
   }, [])
+
+  const nextEvents = useMemo(() => nextEventByCase(calendarEvents), [calendarEvents])
+  const inspectRow = useMemo(() => queue?.cases.find((c) => c.aura_id === inspectId) ?? null, [queue, inspectId])
 
   const openCase = (id: string, target: TabKey) => {
     setSelected(id)
     setTab(target)
+    setInspectId(null)
   }
 
   const alertCount = useMemo(
     () => (queue?.success ? queue.cases.filter((c) => c.risk_band !== "GREEN" || c.human_review_required).length : 0),
     [queue]
   )
+  useEffect(() => onAlertCountChange?.(alertCount), [alertCount, onAlertCountChange])
 
   return (
     <div className="flex flex-col gap-stack-lg">
@@ -912,41 +1282,104 @@ export default function CounsellorDashboard() {
         <p className="text-body-md text-on-surface-variant mt-1">Review cases and act on AURA's analysis — you make the final decision.</p>
       </header>
 
-      <div className="flex flex-wrap gap-1 border-b border-outline-variant">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`px-4 py-2 text-label-md font-semibold rounded-t-lg transition-colors ${
-              tab === t.key
-                ? "text-primary border-b-2 border-primary bg-surface-container-lowest"
-                : "text-on-surface-variant hover:text-on-surface"
-            }`}
-          >
-            {t.label}
-            {t.key === "overview" && alertCount > 0 && (
-              <span className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-error text-on-error text-[10px] font-bold px-1">
-                {alertCount}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
-
-      {tab === "overview" && <OverviewTab queue={queue} audit={audit} onOpenCase={openCase} />}
-      {tab === "cases" && <CasesTab queue={queue} onOpenCase={openCase} />}
+      {tab === "overview" && (
+        <OverviewTab queue={queue} audit={audit} nextEvents={nextEvents} onInspect={setInspectId} />
+      )}
+      {tab === "cases" && <CasesTab queue={queue} nextEvents={nextEvents} onOpenCase={openCase} />}
+      {tab === "casehub" && (
+        <div className="flex flex-col gap-stack-md">
+          <CasePicker queue={queue} selected={selected} onSelect={setSelected} />
+          {!selected ? (
+            <Card><p className="text-body-md text-on-surface-variant">Select a case above to open its Case Hub.</p></Card>
+          ) : (
+            <CaseHub auraId={selected} showTrustedContacts={false} showCounsellorLookup={false} />
+          )}
+        </div>
+      )}
       {tab === "analysis" && <AnalysisTab queue={queue} selected={selected} onSelect={setSelected} />}
       {tab === "action" && (
-        <ActionRequiredTab queue={queue} selected={selected} onSelect={setSelected} decisions={decisions} setDecisions={setDecisions} />
+        <ActionRequiredTab queue={queue} selected={selected} onSelect={setSelected} decisions={decisions} setDecisions={setDecisions} onDecided={loadInterventions} />
       )}
       {tab === "care" && <CarePlanTab queue={queue} selected={selected} onSelect={setSelected} decisions={decisions} />}
-      {tab === "followup" && <FollowUpTab queue={queue} audit={audit} />}
+      {tab === "sessions" && (
+        <SessionsBoard events={calendarEvents} onOpenCase={(id) => openCase(id, "casehub")} onChanged={loadCalendar} />
+      )}
+      {tab === "interventions" && (
+        <Card>
+          <h3 className="text-headline-md text-on-surface mb-1">Interventions pipeline</h3>
+          <p className="text-label-sm text-on-surface-variant/70 mb-3">
+            Every recorded support decision across your cases, by outcome.
+          </p>
+          <InterventionPipeline interventions={interventions} onOpenCase={(id) => openCase(id, "casehub")} />
+        </Card>
+      )}
+      {tab === "followup" && (
+        <FollowUpTab queue={queue} audit={audit} nextEvents={nextEvents} onOpenCalendar={() => setTab("calendar")} />
+      )}
+      {tab === "calendar" && (
+        <OverviewCalendar
+          cases={queue?.success ? queue.cases.map((c) => ({ aura_id: c.aura_id })) : []}
+          onOpenCase={(id) => openCase(id, "casehub")}
+          onChanged={loadCalendar}
+        />
+      )}
+      {tab === "documents" && (
+        <Card>
+          <h3 className="text-headline-md text-on-surface mb-1">Documents</h3>
+          <p className="text-label-sm text-on-surface-variant/70 mb-3">
+            Every tracked file across your cases. Uploading happens from a case's own Case Hub.
+          </p>
+          <DocumentsOverview documents={documents} onOpenCase={(id) => openCase(id, "casehub")} />
+        </Card>
+      )}
       {tab === "reports" && <ReportsTab queue={queue} selected={selected} onSelect={setSelected} decisions={decisions} audit={audit} />}
+      {tab === "resources" && (
+        <Card>
+          <h3 className="text-headline-md text-on-surface mb-1">Resources</h3>
+          <p className="text-label-sm text-on-surface-variant/70 mb-3">
+            Crisis and referral reference - the same guidance shown to victims via SOS, not a
+            fabricated directory of services, addresses or capacity we don't actually track.
+          </p>
+          <div className="flex flex-col divide-y divide-outline-variant">
+            {RESOURCE_REFERENCE.map((r) => (
+              <div key={r.label} className="py-2.5">
+                <p className="text-label-md font-semibold text-on-surface">{r.label}</p>
+                <p className="text-label-sm text-on-surface-variant">{r.detail}</p>
+              </div>
+            ))}
+          </div>
+          <p className="text-label-sm text-on-surface-variant/60 mt-3">
+            Case-specific referrals (counselling, medical, legal, protection, rehabilitation) are
+            recommended and decided per case in Risk &amp; Alerts, not from a static list here.
+          </p>
+        </Card>
+      )}
+      {tab === "call" && <CounsellorCallPanel />}
+      {tab === "history" && <HistoryProfilePage capabilities={voiceCapabilities} backendOnline={backendOnline} />}
 
-      <p className="text-label-sm text-on-surface-variant/50 text-center">
-        <UserCheck size={11} className="inline mr-1 -mt-0.5" />
-        Follow-up due dates shown here are illustrative placeholders — AURA does not yet store structured scheduling data. Care Plan concerns/goals/progress and recorded interventions are real, derived from this case's own signals and decisions.
-      </p>
+      {tab !== "call" && tab !== "history" && (
+        <p className="text-label-sm text-on-surface-variant/50 text-center">
+          <UserCheck size={11} className="inline mr-1 -mt-0.5" />
+          Next-event dates come from the shared Calendar. Care Plan concerns/goals/progress and recorded interventions are derived from this case's own signals and decisions.
+        </p>
+      )}
+
+      <RightPanel
+        open={!!inspectRow}
+        onClose={() => setInspectId(null)}
+        title={inspectRow?.aura_id ?? ""}
+        subtitle="Case snapshot"
+      >
+        {inspectRow && (
+          <CaseInspectorPanel
+            caseRow={inspectRow}
+            nextEvent={nextEvents.get(inspectRow.aura_id)}
+            onOpenCaseHub={() => openCase(inspectRow.aura_id, "casehub")}
+            onOpenAnalysis={() => openCase(inspectRow.aura_id, "analysis")}
+            onOpenCalendar={() => openCase(inspectRow.aura_id, "calendar")}
+          />
+        )}
+      </RightPanel>
     </div>
   )
 }

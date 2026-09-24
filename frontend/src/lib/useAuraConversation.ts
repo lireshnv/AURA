@@ -29,6 +29,12 @@ import {
   startNewConversation,
   streamChatMessage,
 } from "./chatApi"
+import { SpeechStreamController, WordTiming, playSentenceStream } from "./streamingSpeech"
+
+const LATENCY_LOG = typeof import.meta !== "undefined" && !!import.meta.env?.DEV
+function markLatency(label: string, t0: number) {
+  if (LATENCY_LOG) console.debug(`[latency] ${label}: ${(performance.now() - t0).toFixed(0)}ms`)
+}
 
 const DEFAULT_SESSION_STORAGE_KEY = "aura_companion_session_id"
 
@@ -63,6 +69,23 @@ function stripMarkdownForSpeech(text: string): string {
 // punctuation mark followed by whitespace or end-of-string - used to find
 // completed sentences inside a still-growing stream buffer.
 const SENTENCE_END = /^[\s\S]*?[.!?](?:\s|$)/
+// Fast-start rule: only for the very first chunk of a turn, if the model is
+// building a long sentence, break at the next clause boundary instead of
+// waiting for the full stop - shaves the wait before Aura's voice starts
+// without making the rest of the reply sound choppy (later chunks still
+// require SENTENCE_END).
+const CLAUSE_BREAK = /^[\s\S]*?[,;:—](?:\s|$)/
+const FIRST_CHUNK_FAST_START_CHARS = 60
+
+function findSpeakableChunk(rest: string, isFirstChunk: boolean): string | null {
+  const sentenceMatch = rest.match(SENTENCE_END)
+  if (sentenceMatch && sentenceMatch[0].trim()) return sentenceMatch[0]
+  if (isFirstChunk && rest.length >= FIRST_CHUNK_FAST_START_CHARS) {
+    const clauseMatch = rest.match(CLAUSE_BREAK)
+    if (clauseMatch && clauseMatch[0].trim()) return clauseMatch[0]
+  }
+  return null
+}
 
 /**
  * `sessionKey` lets two independent surfaces (e.g. AI Companion's separate
@@ -89,10 +112,69 @@ export function useAuraConversation(language: string, sessionKey: string = DEFAU
 
   // --- Ordered speech queue: sentences are spoken strictly in the order
   //     they were enqueued, regardless of how long each TTS fetch takes. ---
-  const pendingTextRef = useRef<string[]>([])
+  const pendingTextRef = useRef<{ text: string; turnId: number }[]>([])
   const workerRunningRef = useRef(false)
   const interruptResolverRef = useRef<(() => void) | null>(null)
   const streamAbortRef = useRef<AbortController | null>(null)
+  const speechAbortRef = useRef<AbortController | null>(null)
+  const currentSpeechRef = useRef<SpeechStreamController | null>(null)
+
+  // Monotonic turn id: every user-triggered turn (typed or spoken) bumps
+  // this, and every async continuation (a streamed delta, a queued sentence,
+  // a playing audio chunk) checks it before touching state/audio. interrupt()
+  // bumps it immediately, so nothing from a turn the user has since
+  // interrupted can ever surface - no stale text, no stale audio, no race
+  // between an old and a new turn's callbacks.
+  const turnIdRef = useRef(0)
+
+  // Lazily-created Web Audio graph the streaming TTS player schedules PCM
+  // chunks onto. Kept behind an AnalyserNode (not straight to destination)
+  // so real playback amplitude is available for audio-reactive UI, same
+  // math as useAudioAmplitude.ts, without needing an <audio> element at all
+  // for the streamed path.
+  const audioCtxRef = useRef<AudioContext | null>(null)
+  const analyserRef = useRef<AnalyserNode | null>(null)
+
+  const getAudioGraph = useCallback(() => {
+    if (!audioCtxRef.current) {
+      const AudioCtxClass =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+      const ctx = new AudioCtxClass()
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 256
+      analyser.connect(ctx.destination)
+      audioCtxRef.current = ctx
+      analyserRef.current = analyser
+    }
+    if (audioCtxRef.current.state === "suspended") {
+      audioCtxRef.current.resume().catch(() => {})
+    }
+    return { audioCtx: audioCtxRef.current, destination: analyserRef.current! }
+  }, [])
+
+  /** Current playback amplitude (0-1) of streamed TTS audio, for
+   * audio-reactive UI (lip-sync). Poll it; it doesn't trigger re-renders. */
+  const getAmplitude = useCallback((): number => {
+    const analyser = analyserRef.current
+    if (!analyser) return 0
+    const data = new Uint8Array(analyser.fftSize)
+    analyser.getByteTimeDomainData(data)
+    let sumSquares = 0
+    for (let i = 0; i < data.length; i++) {
+      const v = (data[i] - 128) / 128
+      sumSquares += v * v
+    }
+    return Math.min(1, Math.sqrt(sumSquares / data.length) * 4)
+  }, [])
+
+  /** Current sentence's word timings + playback position, for real
+   * word-level highlight sync. Null when nothing is streaming right now. */
+  const getSpeechProgress = useCallback((): { words: WordTiming[]; elapsed: number } | null => {
+    const speech = currentSpeechRef.current
+    if (!speech) return null
+    return { words: speech.getWords(), elapsed: speech.getElapsed() }
+  }, [])
 
   useEffect(() => {
     const audio = new Audio()
@@ -100,6 +182,9 @@ export function useAuraConversation(language: string, sessionKey: string = DEFAU
     return () => {
       audio.pause()
       audioRef.current = null
+      audioCtxRef.current?.close().catch(() => {})
+      audioCtxRef.current = null
+      analyserRef.current = null
     }
   }, [])
 
@@ -130,57 +215,116 @@ export function useAuraConversation(language: string, sessionKey: string = DEFAU
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  /** Plays one sentence via the batch (non-streaming) TTS endpoint - the
+   * fallback path when streaming TTS produced no audio at all. */
+  const playBatchFallback = useCallback(async (text: string, turnId: number) => {
+    const url = await speakText(text)
+    const audio = audioRef.current
+    if (!url || !audio || turnId !== turnIdRef.current) return
+    await new Promise<void>((resolve) => {
+      interruptResolverRef.current = resolve
+      const cleanup = () => {
+        audio.removeEventListener("ended", onEnd)
+        audio.removeEventListener("error", onEnd)
+        interruptResolverRef.current = null
+      }
+      const onEnd = () => {
+        cleanup()
+        resolve()
+      }
+      audio.addEventListener("ended", onEnd)
+      audio.addEventListener("error", onEnd)
+      audio.src = url
+      audio.play().catch((err) => {
+        if (LATENCY_LOG) console.warn("[voice] audio.play() was blocked:", err)
+        cleanup()
+        resolve()
+      })
+    })
+  }, [])
+
+  // Streaming TTS (ElevenLabs) is attempted once; if it produces no audio at
+  // all (unconfigured account, plan restriction, network failure), further
+  // sentences THIS SESSION go straight to the batch fallback instead of
+  // paying for a doomed extra round trip on every single sentence - that
+  // wasted attempt was adding a full network round trip of latency (and, on
+  // slow connections, could push audio.play() past the browser's autoplay
+  // grace window) to every reply for an account where streaming can never
+  // succeed. Reset to "try again" on reset()/a fresh mount.
+  const streamingTtsBrokenRef = useRef(false)
+
   const runQueueWorker = useCallback(async () => {
     if (workerRunningRef.current) return
     workerRunningRef.current = true
     setSpeaking(true)
     while (pendingTextRef.current.length > 0) {
-      const text = pendingTextRef.current.shift()!
-      const url = await speakText(text)
-      const audio = audioRef.current
-      if (!url || !audio) continue
-      await new Promise<void>((resolve) => {
-        interruptResolverRef.current = resolve
-        const cleanup = () => {
-          audio.removeEventListener("ended", onEnd)
-          audio.removeEventListener("error", onEnd)
-          interruptResolverRef.current = null
+      const item = pendingTextRef.current.shift()!
+      if (item.turnId !== turnIdRef.current) continue // interrupted since it was queued
+
+      let receivedAudio = false
+      if (!streamingTtsBrokenRef.current) {
+        try {
+          const { audioCtx, destination } = getAudioGraph()
+          const controller = new AbortController()
+          speechAbortRef.current = controller
+          const speech = playSentenceStream(audioCtx, destination, item.text, controller.signal)
+          currentSpeechRef.current = speech
+
+          await speech.done
+          if (currentSpeechRef.current === speech) currentSpeechRef.current = null
+          receivedAudio = speech.receivedAudio()
+          if (!receivedAudio) streamingTtsBrokenRef.current = true
+        } catch (err) {
+          // Web Audio unsupported/unavailable in this browser - fall through
+          // to the <audio>-element batch path below rather than wedging the
+          // queue worker forever.
+          streamingTtsBrokenRef.current = true
+          if (LATENCY_LOG) console.warn("[voice] streaming TTS failed, falling back:", err)
         }
-        const onEnd = () => {
-          cleanup()
-          resolve()
-        }
-        audio.addEventListener("ended", onEnd)
-        audio.addEventListener("error", onEnd)
-        audio.src = url
-        audio.play().catch(() => {
-          cleanup()
-          resolve()
-        })
-      })
+      }
+
+      if (!receivedAudio && item.turnId === turnIdRef.current) {
+        // Streaming TTS produced nothing (ElevenLabs unavailable/failed, or
+        // Web Audio itself threw) - the reply still gets spoken, just
+        // without progressive playback.
+        await playBatchFallback(item.text, item.turnId)
+      }
     }
     workerRunningRef.current = false
     setSpeaking(false)
-  }, [])
+  }, [getAudioGraph, playBatchFallback])
 
-  /** Queues one sentence/utterance to be spoken, in order. */
+  /** Queues one sentence/utterance to be spoken, in order, tagged to the
+   * turn that produced it so a later interrupt() can drop it if it hasn't
+   * played yet. */
   const enqueueSpeech = useCallback(
-    (text: string) => {
+    (text: string, turnId: number) => {
       const clean = stripMarkdownForSpeech(text)
       if (!status?.tts_available || !clean) return
-      pendingTextRef.current.push(clean)
+      pendingTextRef.current.push({ text: clean, turnId })
       runQueueWorker()
     },
     [status?.tts_available, runQueueWorker]
   )
 
-  const playReply = useCallback((text: string) => enqueueSpeech(text), [enqueueSpeech])
+  const playReply = useCallback(
+    (text: string) => enqueueSpeech(text, ++turnIdRef.current),
+    [enqueueSpeech]
+  )
 
-  /** Barge-in: stop whatever Aura is saying/generating, right now. */
+  /** Barge-in: stop whatever Aura is saying/generating, right now. Bumping
+   * turnIdRef first means every in-flight callback from the interrupted
+   * turn (a streamed delta, a queued-but-not-yet-played sentence, an
+   * in-progress audio schedule) becomes a no-op the instant it next checks. */
   const interrupt = useCallback(() => {
+    turnIdRef.current += 1
     pendingTextRef.current = []
     streamAbortRef.current?.abort()
     streamAbortRef.current = null
+    speechAbortRef.current?.abort()
+    speechAbortRef.current = null
+    currentSpeechRef.current?.stop()
+    currentSpeechRef.current = null
     audioRef.current?.pause()
     interruptResolverRef.current?.()
     interruptResolverRef.current = null
@@ -226,6 +370,9 @@ export function useAuraConversation(language: string, sessionKey: string = DEFAU
     async (text: string) => {
       if (!text.trim() || sending) return
 
+      const myTurn = ++turnIdRef.current
+      const t0 = performance.now()
+
       setMessages((m) => [...m, { role: "user", content: text }])
       setSending(true)
 
@@ -237,6 +384,8 @@ export function useAuraConversation(language: string, sessionKey: string = DEFAU
 
       let buffer = ""
       let spokenUpTo = 0
+      let firstDeltaSeen = false
+      let firstChunkEnqueued = false
       const controller = new AbortController()
       streamAbortRef.current = controller
 
@@ -247,10 +396,16 @@ export function useAuraConversation(language: string, sessionKey: string = DEFAU
         true,
         {
           onSessionId: (id) => {
+            if (myTurn !== turnIdRef.current) return
             setSessionId(id)
             setStoredSession(sessionKey, id)
           },
           onDelta: (delta) => {
+            if (myTurn !== turnIdRef.current) return
+            if (!firstDeltaSeen) {
+              firstDeltaSeen = true
+              markLatency("first_llm_delta", t0)
+            }
             buffer += delta
             setMessages((m) => {
               if (assistantIndex < 0 || assistantIndex >= m.length) return m
@@ -259,28 +414,35 @@ export function useAuraConversation(language: string, sessionKey: string = DEFAU
               return next
             })
             const rest = buffer.slice(spokenUpTo)
-            const match = rest.match(SENTENCE_END)
-            if (match && match[0].trim()) {
-              enqueueSpeech(match[0])
-              spokenUpTo += match[0].length
+            const chunk = findSpeakableChunk(rest, spokenUpTo === 0)
+            if (chunk) {
+              if (!firstChunkEnqueued) {
+                firstChunkEnqueued = true
+                markLatency("first_speech_chunk_enqueued", t0)
+              }
+              enqueueSpeech(chunk, myTurn)
+              spokenUpTo += chunk.length
             }
           },
           onSafety: (safety) => {
+            if (myTurn !== turnIdRef.current) return
             setSupportive(true)
             setSafetyBlocks((s) => ({ ...s, [assistantIndex]: safety }))
           },
         },
-        controller.signal
+        controller.signal,
+        String(myTurn)
       ).catch(() => {
         /* an aborted/dropped stream (e.g. barge-in) is not an error - keep
            whatever text arrived */
       })
 
-      const tail = buffer.slice(spokenUpTo).trim()
-      if (tail && streamAbortRef.current === controller) enqueueSpeech(tail)
-
-      if (streamAbortRef.current === controller) streamAbortRef.current = null
-      setSending(false)
+      if (myTurn === turnIdRef.current) {
+        const tail = buffer.slice(spokenUpTo).trim()
+        if (tail) enqueueSpeech(tail, myTurn)
+        if (streamAbortRef.current === controller) streamAbortRef.current = null
+        setSending(false)
+      }
     },
     [sending, sessionId, enqueueSpeech, sessionKey]
   )
@@ -303,6 +465,7 @@ export function useAuraConversation(language: string, sessionKey: string = DEFAU
 
   const reset = useCallback(async () => {
     interrupt()
+    streamingTtsBrokenRef.current = false
     if (sessionId) await clearConversation(sessionId)
     const fresh = await startNewConversation()
     setSessionId(fresh)
@@ -327,5 +490,11 @@ export function useAuraConversation(language: string, sessionKey: string = DEFAU
     reset,
     stopSpeaking,
     greet,
+    /** Real word-level timing for the sentence currently playing (from
+     * ElevenLabs' streamed alignment), for text-highlight sync. */
+    getSpeechProgress,
+    /** Real playback amplitude (0-1) of the currently-streaming TTS audio,
+     * for audio-reactive UI. */
+    getAmplitude,
   }
 }

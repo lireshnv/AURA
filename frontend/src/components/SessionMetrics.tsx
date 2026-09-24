@@ -55,9 +55,9 @@ export default function SessionMetrics({
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3">
       {items.map((item) => (
-        <div key={item.label} className="rounded-lg bg-white border border-slate-200 px-3 py-2">
-          <div className="text-[10px] uppercase tracking-wide text-slate-500">{item.label}</div>
-          <div className="text-sm font-semibold text-slate-900 mt-0.5 truncate capitalize">{item.value}</div>
+        <div key={item.label} className="rounded-lg bg-surface-container-lowest border border-outline-variant px-3 py-2">
+          <div className="text-[10px] uppercase tracking-wide text-on-surface-variant">{item.label}</div>
+          <div className="text-sm font-semibold text-on-surface mt-0.5 truncate capitalize">{item.value}</div>
         </div>
       ))}
     </div>

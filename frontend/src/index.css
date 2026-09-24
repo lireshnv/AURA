@@ -101,6 +101,174 @@
   --text-headline-md: 24px;
   --text-headline-md--line-height: 32px;
   --text-headline-md--font-weight: 600;
+
+  /* --- Aura Cinematic theme (opt-in, via .aura-cinematic) -----------------
+     Additive dark layer for the flagship surfaces (Landing, Victim Home).
+     Every other screen keeps the MD3 light tokens above untouched. Warmed
+     off pure black deliberately - this is a trauma-support surface, not a
+     SaaS pitch, so "premium" leans calm/candlelit rather than stark. */
+  --color-void: #0b0a10;
+  --color-void-raised: #14121c;
+  --color-void-card: #1a1826;
+  --color-ink: #f3f1f8;
+  --color-ink-dim: #b8b3c9;
+  --color-ink-faint: #7c7690;
+  --color-hairline: rgba(255, 255, 255, 0.09);
+  --color-glow-violet: #a682ff;
+  --color-glow-amber: #ffb37b;
+  --color-glow-teal: #7ee8c8;
+
+  --text-display-hero: 96px;
+  --text-display-hero--line-height: 96px;
+  --text-display-hero--letter-spacing: -0.03em;
+  --text-display-hero--font-weight: 600;
+
+  --text-display-hero-mobile: 44px;
+  --text-display-hero-mobile--line-height: 48px;
+  --text-display-hero-mobile--letter-spacing: -0.02em;
+  --text-display-hero-mobile--font-weight: 600;
+}
+
+/* ==========================================================================
+   Aura Cinematic theme
+   ========================================================================== */
+.aura-cinematic {
+  background: var(--color-void);
+  color: var(--color-ink);
+  color-scheme: dark;
+
+  /* Re-point the shared MD3 semantic tokens at dark-appropriate values, so
+     every existing screen built with the plain bg-surface/text-on-surface/
+     bg-primary vocabulary (CounsellorDashboard, AdminDashboard, CaseHub,
+     AuraCalendar, Support, ProfilePage, ...) automatically renders correctly
+     inside the cinematic shell - no per-component rewrite, no risk of a
+     missed class. Only THIS scope's resolved values change; the :root
+     light-theme values above stay the defaults for any non-cinematic page. */
+  --color-background: var(--color-void);
+  --color-on-background: var(--color-ink);
+  --color-surface: var(--color-void-raised);
+  --color-on-surface: var(--color-ink);
+  --color-surface-variant: #241f30;
+  --color-on-surface-variant: var(--color-ink-dim);
+  --color-surface-dim: var(--color-void);
+  --color-surface-bright: #2a2436;
+  --color-surface-container: #1a1826;
+  --color-surface-container-low: var(--color-void-raised);
+  --color-surface-container-lowest: var(--color-void-card);
+  --color-surface-container-high: #241f30;
+  --color-surface-container-highest: #2d2838;
+  --color-outline: rgba(255, 255, 255, 0.22);
+  --color-outline-variant: var(--color-hairline);
+  --color-inverse-surface: var(--color-ink);
+  --color-inverse-on-surface: var(--color-void-raised);
+  --color-inverse-primary: #4b2fc9;
+
+  --color-primary: #7c5cff;
+  --color-on-primary: #ffffff;
+  --color-primary-container: #3c2d80;
+  --color-on-primary-container: #e4dcff;
+  --color-primary-fixed: #3c2d80;
+  --color-primary-fixed-dim: var(--color-glow-violet);
+  --color-on-primary-fixed: #e4dcff;
+  --color-on-primary-fixed-variant: #cdbcff;
+  --color-surface-tint: #7c5cff;
+
+  --color-secondary: #4fd8bb;
+  --color-on-secondary: #04201a;
+  --color-secondary-container: #164a3f;
+  --color-on-secondary-container: #9ff2dc;
+  --color-secondary-fixed: #164a3f;
+  --color-secondary-fixed-dim: #4fd8bb;
+  --color-on-secondary-fixed: #9ff2dc;
+  --color-on-secondary-fixed-variant: #4fd8bb;
+
+  --color-tertiary: #7fb0ff;
+  --color-on-tertiary: #06203f;
+  --color-tertiary-container: #1c3c6e;
+  --color-on-tertiary-container: #cfe1ff;
+  --color-tertiary-fixed: #1c3c6e;
+  --color-tertiary-fixed-dim: #7fb0ff;
+  --color-on-tertiary-fixed: #cfe1ff;
+  --color-on-tertiary-fixed-variant: #7fb0ff;
+
+  --color-error: #ff6b6b;
+  --color-on-error: #2a0808;
+  --color-error-container: #3a1214;
+  --color-on-error-container: #ffd9d4;
+}
+
+.aura-cinematic .aura-grain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.05;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.aura-glass {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--color-hairline);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.aura-glass-strong {
+  background: rgba(26, 24, 38, 0.72);
+  border: 1px solid var(--color-hairline);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+}
+
+.aura-gradient-text {
+  background: linear-gradient(120deg, #ffffff 20%, var(--color-glow-violet) 60%, var(--color-glow-amber) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.aura-glow-violet {
+  background: radial-gradient(closest-side, rgba(166, 130, 255, 0.55), transparent);
+}
+.aura-glow-amber {
+  background: radial-gradient(closest-side, rgba(255, 179, 123, 0.4), transparent);
+}
+.aura-glow-teal {
+  background: radial-gradient(closest-side, rgba(126, 232, 200, 0.4), transparent);
+}
+
+@keyframes aura-float {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-14px) rotate(0.6deg); }
+}
+.animate-aura-float {
+  animation: aura-float 6s ease-in-out infinite;
+}
+
+@keyframes aura-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+.animate-aura-breathe {
+  animation: aura-breathe 5s ease-in-out infinite;
+}
+
+@keyframes aura-drift {
+  0% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(2%, -3%) scale(1.05); }
+  66% { transform: translate(-2%, 2%) scale(0.98); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+.animate-aura-drift {
+  animation: aura-drift 18s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-aura-float,
+  .animate-aura-breathe,
+  .animate-aura-drift {
+    animation: none;
+  }
 }
 
 :root {
@@ -273,4 +441,75 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8; /* slate-400 */
+}
+
+/* Companion environment backgrounds - subtle, continuous ambient motion
+   behind the 3D avatar, never fast/attention-grabbing. */
+@keyframes companion-drift-up {
+  0% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0;
+  }
+  10%,
+  85% {
+    opacity: var(--particle-opacity, 0.8);
+  }
+  100% {
+    transform: translate3d(var(--drift-x, 6px), var(--drift-y, -70px), 0);
+    opacity: 0;
+  }
+}
+@keyframes companion-twinkle {
+  0%,
+  100% {
+    opacity: var(--twinkle-min, 0.25);
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: var(--twinkle-max, 1);
+    transform: scale(1.15);
+  }
+}
+@keyframes companion-sway {
+  0%,
+  100% {
+    transform: rotate(var(--sway-from, -2deg));
+  }
+  50% {
+    transform: rotate(var(--sway-to, 2deg));
+  }
+}
+@keyframes companion-cloud-drift {
+  0% {
+    transform: translateX(-6%);
+  }
+  100% {
+    transform: translateX(6%);
+  }
+}
+@keyframes companion-glow-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+.companion-particle {
+  animation: companion-drift-up var(--dur, 7s) ease-in-out infinite, companion-twinkle var(--twinkle-dur, 2.4s) ease-in-out infinite;
+  animation-delay: var(--delay, 0s), var(--delay, 0s);
+}
+.companion-cloud {
+  animation: companion-cloud-drift var(--dur, 26s) ease-in-out infinite alternate;
+  animation-delay: var(--delay, 0s);
+}
+.companion-sway {
+  animation: companion-sway var(--dur, 5s) ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+  transform-origin: bottom center;
+}
+.companion-glow {
+  animation: companion-glow-pulse var(--dur, 6s) ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
 }

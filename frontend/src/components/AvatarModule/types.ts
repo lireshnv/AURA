@@ -1,4 +1,4 @@
-export type AvatarType = "fox" | "dog" | "cat" | "robot" | "plant" | "custom"
+export type AvatarType = "fox" | "dog" | "cat" | "rabbit" | "plant" | "robot" | "orb" | "custom"
 
 export type Expression =
   | "natural"

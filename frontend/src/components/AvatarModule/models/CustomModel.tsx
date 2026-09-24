@@ -4,7 +4,7 @@ import { useFrame } from "@react-three/fiber"
 import * as THREE from "three"
 import { SkeletonUtils } from "three-stdlib"
 import { AvatarRenderProps } from "../types"
-import { PlantModel } from "./ProceduralAvatars"
+import { FallbackModel } from "./ProceduralAvatars"
 
 export class ModelErrorBoundary extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
   state = { failed: false }
@@ -73,10 +73,10 @@ export default function CustomModel(props: AvatarRenderProps & { glbUrl: string 
   const { glbUrl, ...rest } = props
   if (!glbUrl) {
     // Nothing uploaded yet - a neutral placeholder rather than an empty scene.
-    return <PlantModel {...rest} />
+    return <FallbackModel {...rest} />
   }
   return (
-    <ModelErrorBoundary fallback={<PlantModel {...rest} />}>
+    <ModelErrorBoundary fallback={<FallbackModel {...rest} />}>
       <UploadedModel url={glbUrl} {...rest} />
     </ModelErrorBoundary>
   )

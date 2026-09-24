@@ -58,24 +58,24 @@ function FeatureBar({ label, feature }: { label: string; feature: VoiceFeature |
   if (!feature?.available || feature.normalized === null) {
     return (
       <div className="flex items-center gap-2 text-[11px]">
-        <span className="w-28 shrink-0 text-slate-500">{label}</span>
-        <span className="text-slate-400 italic">not measured</span>
+        <span className="w-28 shrink-0 text-on-surface-variant">{label}</span>
+        <span className="text-on-surface-variant italic">not measured</span>
       </div>
     )
   }
   const pct = Math.round(feature.normalized * 100)
   return (
     <div className="flex items-center gap-2 text-[11px]">
-      <span className="w-28 shrink-0 text-slate-500">{label}</span>
-      <div className="flex-1 h-1.5 rounded-full bg-slate-200 overflow-hidden">
+      <span className="w-28 shrink-0 text-on-surface-variant">{label}</span>
+      <div className="flex-1 h-1.5 rounded-full bg-surface-container-high overflow-hidden">
         <div
           className="h-full bg-violet-500 transition-[width] duration-300"
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="w-9 text-right tabular-nums text-slate-600">{pct}%</span>
+      <span className="w-9 text-right tabular-nums text-on-surface-variant">{pct}%</span>
       {feature.raw !== null && (
-        <span className="w-20 text-right tabular-nums text-slate-400">
+        <span className="w-20 text-right tabular-nums text-on-surface-variant">
           {feature.raw.toFixed(feature.unit === "Hz" ? 0 : 2)} {feature.unit}
         </span>
       )}
@@ -90,15 +90,15 @@ const QUALITY_TONE: Record<string, string> = {
   medium: "text-amber-600",
   poor: "text-rose-600",
   low: "text-rose-600",
-  none: "text-slate-400",
-  unavailable: "text-slate-400",
+  none: "text-on-surface-variant",
+  unavailable: "text-on-surface-variant",
 }
 
 function QualityRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between text-[11px]">
-      <span className="text-slate-500">{label}</span>
-      <span className={`font-medium capitalize ${QUALITY_TONE[value] ?? "text-slate-500"}`}>
+      <span className="text-on-surface-variant">{label}</span>
+      <span className={`font-medium capitalize ${QUALITY_TONE[value] ?? "text-on-surface-variant"}`}>
         {value}
       </span>
     </div>
@@ -379,10 +379,10 @@ export default function VoiceAnalysis({
   const lowConfidence = frame?.analysis_used === true && frame.confidence < 35
 
   return (
-    <div className="rounded-xl bg-white border border-slate-200 p-4 space-y-4">
+    <div className="rounded-xl bg-surface-container-lowest border border-outline-variant p-4 space-y-4">
       {/* --- Header --- */}
       <div className="flex items-center justify-between">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-700">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-on-surface">
           Voice Analysis
         </h2>
         <div className="flex items-center gap-1.5 text-[11px] font-medium">
@@ -394,18 +394,18 @@ export default function VoiceAnalysis({
             </>
           ) : (
             <>
-              <MicOff size={12} className="text-slate-400" />
-              <span className="text-slate-400">Microphone Off</span>
+              <MicOff size={12} className="text-on-surface-variant" />
+              <span className="text-on-surface-variant">Microphone Off</span>
             </>
           )}
         </div>
       </div>
 
-      <div className="rounded-lg bg-slate-50 border border-slate-200 p-2">
+      <div className="rounded-lg bg-surface-container-low border border-outline-variant p-2">
         <canvas ref={canvasRef} width={320} height={32} className="w-full h-8" />
         <div className="flex items-center gap-2 mt-1">
-          <span className="text-[10px] uppercase tracking-wide text-slate-400">level</span>
-          <div className="flex-1 h-1 rounded-full bg-slate-200 overflow-hidden">
+          <span className="text-[10px] uppercase tracking-wide text-on-surface-variant">level</span>
+          <div className="flex-1 h-1 rounded-full bg-surface-container-high overflow-hidden">
             <div
               className="h-full bg-emerald-500 transition-[width] duration-100"
               style={{ width: `${Math.min(100, rms * 300)}%` }}
@@ -416,26 +416,26 @@ export default function VoiceAnalysis({
 
       {/* --- Live transcript --- */}
       <section>
-        <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 mb-1.5">
+        <h3 className="text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant mb-1.5">
           Live Transcript
         </h3>
-        <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 min-h-[56px] text-sm leading-relaxed">
+        <div className="rounded-lg bg-surface-container-low border border-outline-variant p-3 min-h-[56px] text-sm leading-relaxed">
           {finalText || partialText ? (
-            <p className="text-slate-800">
+            <p className="text-on-surface">
               {finalText}
               {finalText && partialText ? " " : ""}
               {/* Provisional text is visually distinct so nobody mistakes it
                   for settled output. */}
-              {partialText && <span className="text-slate-400 italic">{partialText}</span>}
+              {partialText && <span className="text-on-surface-variant italic">{partialText}</span>}
             </p>
           ) : (
-            <p className="text-slate-400 text-xs">
+            <p className="text-on-surface-variant text-xs">
               {listening ? "Nothing transcribed yet. Speak to begin." : "Not listening."}
             </p>
           )}
         </div>
         {transcriptConfidence !== null && (
-          <p className="text-[11px] text-slate-500 mt-1">
+          <p className="text-[11px] text-on-surface-variant mt-1">
             Transcript confidence: {transcriptConfidence.toFixed(0)}%
           </p>
         )}
@@ -443,7 +443,7 @@ export default function VoiceAnalysis({
 
       {/* --- Voice signal: observation first, interpretation clearly apart --- */}
       <section>
-        <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 mb-1.5">
+        <h3 className="text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant mb-1.5">
           Voice Signal
         </h3>
         {signal ? (
@@ -475,8 +475,8 @@ export default function VoiceAnalysis({
             </p>
           </div>
         ) : (
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-            <p className="text-xs text-slate-500">
+          <div className="rounded-lg border border-outline-variant bg-surface-container-low p-3">
+            <p className="text-xs text-on-surface-variant">
               {statusMessage || (listening ? "Collecting more speech..." : "Not listening.")}
             </p>
           </div>
@@ -495,7 +495,7 @@ export default function VoiceAnalysis({
 
       {/* --- Vocal features --- */}
       <section>
-        <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 mb-1.5">
+        <h3 className="text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant mb-1.5">
           Vocal Features
         </h3>
         {frame?.analysis_used ? (
@@ -505,13 +505,13 @@ export default function VoiceAnalysis({
             ))}
           </div>
         ) : (
-          <p className="text-xs text-slate-400">No features measured in this window.</p>
+          <p className="text-xs text-on-surface-variant">No features measured in this window.</p>
         )}
       </section>
 
       {/* --- Voice quality (jitter/shimmer/HNR) --- */}
       <section>
-        <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 mb-1.5">
+        <h3 className="text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant mb-1.5">
           Voice Quality
         </h3>
         {frame?.analysis_used ? (
@@ -521,13 +521,13 @@ export default function VoiceAnalysis({
             ))}
           </div>
         ) : (
-          <p className="text-xs text-slate-400">No features measured in this window.</p>
+          <p className="text-xs text-on-surface-variant">No features measured in this window.</p>
         )}
       </section>
 
       {/* --- Signal quality --- */}
       <section>
-        <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 mb-1.5">
+        <h3 className="text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant mb-1.5">
           Signal Quality
         </h3>
         <div className="space-y-1">
@@ -536,7 +536,7 @@ export default function VoiceAnalysis({
           <QualityRow label="Transcript" value={frame?.quality?.transcript ?? "none"} />
         </div>
         {frame?.latency && frame.analysis_used && (
-          <p className="text-[10px] text-slate-400 mt-1.5 tabular-nums">
+          <p className="text-[10px] text-on-surface-variant mt-1.5 tabular-nums">
             {frame.latency.total_ms.toFixed(0)}ms
             {/* Surfaced because a silent regression to sequential execution is
                 otherwise invisible and costs roughly double the latency. */}

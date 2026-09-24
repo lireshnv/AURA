@@ -12,6 +12,7 @@ import {
   VoiceCapabilities,
   VoiceObservation,
 } from "../types"
+import { authHeader } from "./authToken"
 
 // 127.0.0.1 rather than "localhost" deliberately. On Windows, "localhost"
 // resolves to ::1 first; the backend binds IPv4, so every NEW connection pays
@@ -218,9 +219,15 @@ export async function fetchDistressSignal(
   }
 }
 
-export async function fetchHistory(limit = 50): Promise<HistoryResponse | null> {
+/** Own history for a victim; pass `auraId` (and be an authorized
+ * counsellor/admin/guardian for that case) to view someone else's. */
+export async function fetchHistory(limit = 50, auraId?: string): Promise<HistoryResponse | null> {
   try {
-    const res = await fetch(`${API_BASE_URL}/api/history/sessions?limit=${limit}`, {
+    const qs = new URLSearchParams({ limit: String(limit) })
+    if (auraId) qs.set("aura_id", auraId)
+    const res = await fetch(`${API_BASE_URL}/api/history/sessions?${qs.toString()}`, {
+      headers: { ...authHeader() },
+      credentials: "include",
       signal: AbortSignal.timeout(8000),
     })
     if (!res.ok) return null
@@ -230,14 +237,16 @@ export async function fetchHistory(limit = 50): Promise<HistoryResponse | null> 
   }
 }
 
-/** Persists a completed session. Derived signals only - never raw media. */
+/** Persists a completed session. Derived signals only - never raw media.
+ * Always saved against the authenticated caller's own aura_id server-side. */
 export async function saveHistorySession(
   record: Record<string, unknown>
 ): Promise<string | null> {
   try {
     const res = await fetch(`${API_BASE_URL}/api/history/session`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeader() },
+      credentials: "include",
       body: JSON.stringify(record),
     })
     if (!res.ok) return null
@@ -250,7 +259,11 @@ export async function saveHistorySession(
 
 export async function clearHistory(): Promise<boolean> {
   try {
-    const res = await fetch(`${API_BASE_URL}/api/history/sessions`, { method: "DELETE" })
+    const res = await fetch(`${API_BASE_URL}/api/history/sessions`, {
+      method: "DELETE",
+      headers: { ...authHeader() },
+      credentials: "include",
+    })
     return res.ok
   } catch {
     return false

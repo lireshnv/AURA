@@ -19,9 +19,10 @@ if os.environ.get("AURA_ENV", "development").lower() != "production":
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session as DbSession
 
 from . import (
     audit_store,
@@ -87,9 +88,13 @@ from .schemas import (
 from .reasoning import generate_explanation
 from .sentiment import compute_sentiment
 from .smoothing import store as session_store
-from .api import auth_routes, chat, ivrs, patterns, safety_plan, sos
+from .api import auth_routes, calendar, chat, ivrs, patterns, realtime_voice, safety_plan, sos
 from .core.config import settings
 from .services import groq_text_analysis
+from .database import get_db
+from .database.models import User
+from .security.auth import get_current_user
+from .security.authz import can_access_victim
 
 logger = logging.getLogger("aura")
 
@@ -128,6 +133,7 @@ async def security_headers(request, call_next):
 
 app.include_router(auth_routes.router)
 app.include_router(chat.router)
+app.include_router(realtime_voice.router)
 app.include_router(ivrs.router)
 app.include_router(sos.router)
 app.include_router(aura_api.router)
@@ -135,6 +141,7 @@ app.include_router(twin_api.router)
 app.include_router(risk_api.router)
 app.include_router(safety_plan.router)
 app.include_router(patterns.router)
+app.include_router(calendar.router)
 
 
 @app.get("/api/system/status")
@@ -715,9 +722,19 @@ async def distress_signal_endpoint(payload: DistressSignalRequest):
 
 
 @app.post("/api/history/session")
-async def save_history_session(payload: SaveSessionRequest):
-    """Stores one completed session (derived signals only, never raw media)."""
+async def save_history_session(
+    payload: SaveSessionRequest,
+    user: User = Depends(get_current_user),
+):
+    """Stores one completed session (derived signals only, never raw media).
+
+    Only a victim can save their own session - aura_id comes from the
+    authenticated user, never the request body, so one account can't write
+    into another's history."""
+    if user.role != "victim" or not user.aura_id:
+        raise HTTPException(status_code=403, detail="Only a victim's own session can be saved to history.")
     record = payload.model_dump()
+    record["aura_id"] = user.aura_id
     record["created_at"] = _timestamp()
     session_id = history_store.save_session(record)
     if session_id is None:
@@ -726,8 +743,24 @@ async def save_history_session(payload: SaveSessionRequest):
 
 
 @app.get("/api/history/sessions")
-async def list_history_sessions(limit: int = 50):
-    sessions = history_store.list_sessions(limit=limit)
+async def list_history_sessions(
+    limit: int = 50,
+    aura_id: Optional[str] = None,
+    user: User = Depends(get_current_user),
+    db: DbSession = Depends(get_db),
+):
+    """A victim always sees their own history. A counsellor/admin/guardian
+    must pass `aura_id` and be authorized for that specific case - the same
+    `can_access_victim` check every other case-scoped endpoint uses."""
+    if user.role == "victim":
+        target_id = user.aura_id
+    else:
+        if not aura_id:
+            raise HTTPException(status_code=400, detail="aura_id is required for this role.")
+        if not can_access_victim(user, aura_id, db):
+            raise HTTPException(status_code=403, detail="Not authorized for this case.")
+        target_id = aura_id
+    sessions = history_store.list_sessions(limit=limit, aura_id=target_id)
     return {
         "success": True,
         "sessions": sessions,
@@ -737,14 +770,18 @@ async def list_history_sessions(limit: int = 50):
 
 
 @app.delete("/api/history/session/{session_id}")
-async def delete_history_session(session_id: str):
-    return {"success": history_store.delete_session(session_id)}
+async def delete_history_session(session_id: str, user: User = Depends(get_current_user)):
+    if user.role != "victim" or not user.aura_id:
+        raise HTTPException(status_code=403, detail="Only a victim can delete their own session.")
+    return {"success": history_store.delete_session(session_id, aura_id=user.aura_id)}
 
 
 @app.delete("/api/history/sessions")
-async def clear_history_sessions():
-    """User-initiated clear of all stored history."""
-    return {"success": True, "deleted": history_store.clear_all()}
+async def clear_history_sessions(user: User = Depends(get_current_user)):
+    """User-initiated clear of all stored history - their own only."""
+    if user.role != "victim" or not user.aura_id:
+        raise HTTPException(status_code=403, detail="Only a victim can clear their own history.")
+    return {"success": True, "deleted": history_store.clear_all(aura_id=user.aura_id)}
 
 
 @app.post("/api/session/analyze")

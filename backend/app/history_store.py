@@ -67,6 +67,7 @@ def init_db() -> None:
                     """
                     CREATE TABLE IF NOT EXISTS sessions (
                         id                TEXT PRIMARY KEY,
+                        aura_id           TEXT,
                         created_at        TEXT NOT NULL,
                         duration_seconds  REAL NOT NULL DEFAULT 0,
                         observed_emotion  TEXT,
@@ -89,6 +90,16 @@ def init_db() -> None:
                     "CREATE INDEX IF NOT EXISTS idx_sessions_created "
                     "ON sessions (created_at DESC)"
                 )
+                # Migration for DBs created before aura_id scoping existed -
+                # CREATE TABLE IF NOT EXISTS above is a no-op on an existing
+                # table, so an already-initialised DB needs this separately.
+                try:
+                    conn.execute("ALTER TABLE sessions ADD COLUMN aura_id TEXT")
+                except sqlite3.OperationalError:
+                    pass  # column already exists
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_sessions_aura_id ON sessions (aura_id)"
+                )
             _initialized = True
             logger.info("History database ready at %s", _db_path())
         except Exception:  # noqa: BLE001 - history must never block analysis
@@ -108,15 +119,16 @@ def save_session(record: Dict) -> Optional[str]:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO sessions (
-                    id, created_at, duration_seconds, observed_emotion,
+                    id, aura_id, created_at, duration_seconds, observed_emotion,
                     emotion_confidence, distress_score, distress_level,
                     sentiment_dominant, agreement, modalities,
                     valid_observations, emotion_scores, sentiment_scores,
                     factors, transcript_excerpt, notes
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     session_id,
+                    record.get("aura_id"),
                     record.get("created_at") or datetime.now(timezone.utc).isoformat(),
                     float(record.get("duration_seconds") or 0),
                     record.get("observed_emotion"),
@@ -149,6 +161,7 @@ def _row_to_dict(row: sqlite3.Row) -> Dict:
 
     return {
         "id": row["id"],
+        "aura_id": row["aura_id"],
         "created_at": row["created_at"],
         "duration_seconds": row["duration_seconds"],
         "observed_emotion": row["observed_emotion"],
@@ -167,47 +180,72 @@ def _row_to_dict(row: sqlite3.Row) -> Dict:
     }
 
 
-def list_sessions(limit: int = 50) -> List[Dict]:
+def list_sessions(limit: int = 50, aura_id: Optional[str] = None) -> List[Dict]:
+    """`aura_id=None` lists every session (only ever used internally, e.g. by
+    an already-authorized caller that filters afterwards) - every API route
+    below always passes a concrete aura_id so one person's sessions are
+    never returned for another's request."""
     init_db()
     try:
         with _connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM sessions ORDER BY created_at DESC LIMIT ?", (limit,)
-            ).fetchall()
+            if aura_id is not None:
+                rows = conn.execute(
+                    "SELECT * FROM sessions WHERE aura_id = ? ORDER BY created_at DESC LIMIT ?",
+                    (aura_id, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM sessions ORDER BY created_at DESC LIMIT ?", (limit,)
+                ).fetchall()
         return [_row_to_dict(r) for r in rows]
     except Exception:  # noqa: BLE001
         logger.exception("Failed to list sessions")
         return []
 
 
-def get_session(session_id: str) -> Optional[Dict]:
+def get_session(session_id: str, aura_id: Optional[str] = None) -> Optional[Dict]:
     init_db()
     try:
         with _connect() as conn:
-            row = conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
+            if aura_id is not None:
+                row = conn.execute(
+                    "SELECT * FROM sessions WHERE id = ? AND aura_id = ?", (session_id, aura_id)
+                ).fetchone()
+            else:
+                row = conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
         return _row_to_dict(row) if row else None
     except Exception:  # noqa: BLE001
         logger.exception("Failed to fetch session")
         return None
 
 
-def delete_session(session_id: str) -> bool:
+def delete_session(session_id: str, aura_id: Optional[str] = None) -> bool:
     init_db()
     try:
         with _connect() as conn:
-            cur = conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+            if aura_id is not None:
+                cur = conn.execute(
+                    "DELETE FROM sessions WHERE id = ? AND aura_id = ?", (session_id, aura_id)
+                )
+            else:
+                cur = conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
         return cur.rowcount > 0
     except Exception:  # noqa: BLE001
         logger.exception("Failed to delete session")
         return False
 
 
-def clear_all() -> int:
-    """Deletes every stored session - the user's 'clear my history' control."""
+def clear_all(aura_id: Optional[str] = None) -> int:
+    """Deletes stored sessions - the user's 'clear my history' control.
+    `aura_id=None` would wipe every user's history, so every caller below
+    always passes their own aura_id."""
     init_db()
     try:
         with _connect() as conn:
-            cur = conn.execute("DELETE FROM sessions")
+            if aura_id is not None:
+                cur = conn.execute("DELETE FROM sessions WHERE aura_id = ?", (aura_id,))
+            else:
+                cur = conn.execute("DELETE FROM sessions")
         return cur.rowcount
     except Exception:  # noqa: BLE001
         logger.exception("Failed to clear history")

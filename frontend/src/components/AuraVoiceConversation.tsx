@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react"
-import { Mic, Square, Pause, Play, Video, VideoOff, Lock } from "lucide-react"
+import { Mic, Square, Pause, Play, Video, VideoOff, Lock, Zap } from "lucide-react"
 import { useAuraConversation } from "../lib/useAuraConversation"
+import { useRealtimeVoiceConversation } from "../lib/useRealtimeVoiceConversation"
 import { transcribeVoice } from "../lib/chatApi"
+import { WordTiming } from "../lib/streamingSpeech"
 import { RollingAudioCapture } from "../lib/audioCapture"
 import { recordOutcome } from "../lib/patternsApi"
 import { CareActivityType, setConsent, submitCareAction } from "../lib/twinApi"
@@ -50,12 +52,14 @@ interface Props {
 }
 
 /**
- * "Speak with Aura" - the SAME Aura conversation engine (useAuraConversation)
- * used by the text Companion, wrapped in a voice-first, continuous-turn
- * experience. Reuses RollingAudioCapture's silence-based utterance detection
- * (already built for the live voice-tone pipeline) purely for turn-taking
- * here - a second, dedicated mic capture, but the SAME transcribe/chat/
- * speak/session/safety calls as everywhere else in the app.
+ * "Speak with Aura" / "Talk to Aura" - realtime, full-duplex, instantaneous
+ * audio-to-audio (Gemini Live) whenever it's configured, which is the
+ * default everywhere this component is used. Falls back automatically,
+ * with no user action needed, to the legacy STT-then-LLM-then-TTS engine
+ * (useAuraConversation + RollingAudioCapture's silence-based utterance
+ * detection) if Gemini isn't configured or a realtime session fails to
+ * start - see useRealtimeVoiceConversation.ts and the `useRealtimeMode`/
+ * `forcedLegacy` wiring below for exactly how that fallback works.
  */
 export default function AuraVoiceConversation({
   cameraActive,
@@ -75,16 +79,63 @@ export default function AuraVoiceConversation({
   const [showCalmActivity, setShowCalmActivity] = useState(false)
   const [micError, setMicError] = useState<string | null>(null)
 
-  const { messages, safetyBlocks, sending, speaking, status, sendStreaming, interrupt, reset, greet } =
-    useAuraConversation(language, sessionKey)
+  const {
+    messages,
+    safetyBlocks,
+    sending,
+    speaking,
+    status,
+    sendStreaming,
+    interrupt,
+    reset,
+    greet,
+    getSpeechProgress,
+    getAmplitude,
+  } = useAuraConversation(language, sessionKey)
+
+  // Realtime (Gemini Live, full-duplex, instantaneous audio-to-audio) is now
+  // THE "Talk to Aura"/"Speak with Aura" engine everywhere this component is
+  // used - automatic, not a toggle the user has to find. The legacy
+  // STT-then-LLM-then-TTS engine above stays fully intact underneath it as
+  // an automatic fallback: if Gemini isn't configured, or a realtime session
+  // fails to start, this silently drops to the legacy path rather than
+  // leaving the user stuck on a broken "Beta" feature.
+  const realtime = useRealtimeVoiceConversation()
+  const realtimeAvailable = realtime.status?.ready ?? false
+  const [forcedLegacy, setForcedLegacy] = useState(false)
+  const useRealtimeMode = realtimeAvailable && !forcedLegacy
+
+  // Unified view over whichever engine is active, so the rest of this
+  // component (JSX, waveform, turn loop) doesn't need to branch everywhere.
+  const activeMessages = useRealtimeMode ? realtime.messages : messages
+  const activeSafetyBlocks = useRealtimeMode ? realtime.safetyBlocks : safetyBlocks
+  const activeSpeaking = useRealtimeMode ? realtime.speaking : speaking
+  const activeSending = useRealtimeMode ? realtime.connecting : sending
+  const activeMicError = useRealtimeMode ? realtime.micError : micError
+  const activeGetAmplitude = useRealtimeMode ? realtime.getAmplitude : getAmplitude
+  const activeGetSpeechProgress = useRealtimeMode ? realtime.getSpeechProgress : getSpeechProgress
+  const activeInterrupt = useRealtimeMode ? realtime.interrupt : interrupt
+  const activeGreet = useRealtimeMode ? realtime.greet : greet
+  const activeReset = useRealtimeMode ? realtime.reset : reset
+
+  const [amplitude, setAmplitude] = useState(0)
+  const [liveCaption, setLiveCaption] = useState<{ words: WordTiming[]; activeIndex: number } | null>(null)
 
   const captureRef = useRef<RollingAudioCapture | null>(null)
   const pollRef = useRef<number | null>(null)
   const rafRef = useRef<number | null>(null)
+  const frameCountRef = useRef(0)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const transcriptEndRef = useRef<HTMLDivElement>(null)
   const pausedRef = useRef(false)
   const busyRef = useRef(false)
+  const speakingSinceRef = useRef(0)
+  const loudStreakRef = useRef(0)
+
+  useEffect(() => {
+    if (activeSpeaking) speakingSinceRef.current = performance.now()
+    else loudStreakRef.current = 0
+  }, [activeSpeaking])
 
   const changeLanguage = (code: string) => {
     setLanguage(code)
@@ -95,27 +146,56 @@ export default function AuraVoiceConversation({
   //     sendStreaming() the text Companion's engine exposes. Also the
   //     barge-in check: if the user starts talking while Aura is speaking,
   //     her audio (and any remaining generation) is cancelled immediately
-  //     and the turn hands back, rather than waiting for her to finish. ---
+  //     and the turn hands back, rather than waiting for her to finish.
+  //
+  //     Two guards keep Aura's OWN voice (leaking back through the mic when
+  //     echo cancellation isn't perfect, e.g. no headphones) or a brief
+  //     ambient noise spike from being mistaken for the user interrupting:
+  //     a short grace window right as she starts speaking (echo is loudest
+  //     and least cancelled at onset), and requiring the mic's speech gate
+  //     to stay tripped across consecutive polls rather than a single 80ms
+  //     blip before committing to a barge-in. ---
+  const BARGE_IN_GRACE_MS = 600
+  const BARGE_IN_STREAK_REQUIRED = 3
+
   useEffect(() => {
+    // Realtime mode needs none of this: Gemini's own server-side VAD handles
+    // turn-taking and interruption, and useRealtimeVoiceConversation's
+    // ContinuousMicStream streams audio to it directly - there is no client
+    // utterance-capture/transcribe/send loop to run here.
+    if (useRealtimeMode) return
     if (phase !== "listening" && phase !== "speaking") return
     pollRef.current = window.setInterval(async () => {
       const capture = captureRef.current
       if (!capture) return
       capture.resumeIfSuspended()
 
-      if (speaking && capture.isSpeaking) {
-        interrupt()
+      if (speaking) {
+        const withinGrace = performance.now() - speakingSinceRef.current < BARGE_IN_GRACE_MS
+        if (capture.isSpeaking && !withinGrace) {
+          loudStreakRef.current += 1
+          if (loudStreakRef.current >= BARGE_IN_STREAK_REQUIRED) {
+            loudStreakRef.current = 0
+            interrupt()
+          }
+        } else {
+          loudStreakRef.current = 0
+        }
         return
       }
-      if (pausedRef.current || busyRef.current || speaking) return
+      if (pausedRef.current || busyRef.current) return
 
       const utterance = capture.takeUtterance()
       if (!utterance) return
 
+      const t0 = performance.now()
       busyRef.current = true
       setTranscribing(true)
       const text = await transcribeVoice(utterance.blob)
       setTranscribing(false)
+      if (import.meta.env?.DEV) {
+        console.debug(`[latency] transcript_received: ${(performance.now() - t0).toFixed(0)}ms`)
+      }
       if (text && text.trim()) await sendStreaming(text)
       busyRef.current = false
     }, POLL_MS)
@@ -123,47 +203,65 @@ export default function AuraVoiceConversation({
       if (pollRef.current) window.clearInterval(pollRef.current)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, speaking])
+  }, [phase, speaking, useRealtimeMode])
 
-  // --- Waveform, visualization only ---
+  // --- Waveform (every frame, imperative canvas - no React state) plus
+  //     throttled (~20fps) amplitude/word-highlight state, driven by the
+  //     REAL TTS playback timeline (getSpeechProgress/getAmplitude), not a
+  //     fixed timer - so the avatar and caption track actual audio. ---
   useEffect(() => {
     if (phase === "idle" || phase === "ended") return
     const draw = () => {
-      const capture = captureRef.current
+      if (useRealtimeMode) realtime.resumeIfSuspended()
+      const levels = useRealtimeMode ? realtime.getLevels() : captureRef.current?.getLevels() ?? null
       const canvas = canvasRef.current
-      if (capture && canvas) {
-        const levels = capture.getLevels()
-        if (levels) {
-          const ctx = canvas.getContext("2d")
-          if (ctx) {
-            const w = canvas.width
-            const h = canvas.height
-            ctx.clearRect(0, 0, w, h)
-            const bars = levels.waveform.length
-            const barWidth = w / bars
-            for (let i = 0; i < bars; i++) {
-              const amp = Math.min(1, levels.waveform[i] * 3)
-              const barHeight = Math.max(2, amp * h)
-              ctx.fillStyle = speaking ? "#0062d2" : amp > 0.4 ? "#630ed4" : "#d2bbff"
-              ctx.fillRect(i * barWidth, (h - barHeight) / 2, Math.max(1, barWidth - 1), barHeight)
-            }
+      if (levels && canvas) {
+        const ctx = canvas.getContext("2d")
+        if (ctx) {
+          const w = canvas.width
+          const h = canvas.height
+          ctx.clearRect(0, 0, w, h)
+          const bars = levels.waveform.length
+          const barWidth = w / bars
+          for (let i = 0; i < bars; i++) {
+            const amp = Math.min(1, levels.waveform[i] * 3)
+            const barHeight = Math.max(2, amp * h)
+            ctx.fillStyle = activeSpeaking ? "#0062d2" : amp > 0.4 ? "#630ed4" : "#d2bbff"
+            ctx.fillRect(i * barWidth, (h - barHeight) / 2, Math.max(1, barWidth - 1), barHeight)
           }
         }
       }
+
+      frameCountRef.current += 1
+      if (frameCountRef.current % 3 === 0) {
+        if (activeSpeaking) {
+          setAmplitude(activeGetAmplitude())
+          const progress = activeGetSpeechProgress()
+          if (progress && progress.words.length > 0 && progress.elapsed >= 0) {
+            let idx = progress.words.findIndex((w) => progress.elapsed < w.end)
+            if (idx === -1) idx = progress.words.length - 1
+            setLiveCaption({ words: progress.words, activeIndex: idx })
+          }
+        } else {
+          setAmplitude(0)
+          setLiveCaption(null)
+        }
+      }
+
       rafRef.current = requestAnimationFrame(draw)
     }
     rafRef.current = requestAnimationFrame(draw)
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
     }
-  }, [phase, speaking])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, activeSpeaking, useRealtimeMode])
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" })
-  }, [messages.length])
+  }, [activeMessages.length])
 
-  const start = async () => {
-    setMicError(null)
+  const startLegacy = async () => {
     try {
       // Shorter trailing-silence window than the analysis-page capture (700ms)
       // trades a slightly higher chance of a mid-thought cutoff for snappier
@@ -199,25 +297,57 @@ export default function AuraVoiceConversation({
     }
   }
 
+  const start = async () => {
+    setMicError(null)
+    if (useRealtimeMode) {
+      const ok = await realtime.start(language)
+      if (ok) {
+        pausedRef.current = false
+        setPhase("listening")
+        onStartAnalysis?.()
+        onToggleCamera?.(true)
+        // No scripted opener spoken through Gemini (see the hook's greet()) -
+        // just a plain UI cue, since the mic is already live and listening.
+        if (activeMessages.length === 0) activeGreet("I'm listening — go ahead.")
+        return
+      }
+      // Realtime failed to start (e.g. a transient Gemini/network issue) -
+      // fall back to the legacy pipeline automatically rather than leaving
+      // the user stuck on a broken "Start Talking" button.
+      setForcedLegacy(true)
+      setMicError(null)
+    }
+    await startLegacy()
+  }
+
   const stopCapture = () => {
     captureRef.current?.stop()
     captureRef.current = null
     if (pollRef.current) window.clearInterval(pollRef.current)
+    if (useRealtimeMode) realtime.stop()
   }
 
   const pause = () => {
     pausedRef.current = true
-    interrupt()
+    activeInterrupt()
+    if (useRealtimeMode) realtime.stop()
     setPhase("paused")
   }
 
-  const resume = () => {
+  const resume = async () => {
     pausedRef.current = false
+    if (useRealtimeMode) {
+      const ok = await realtime.start(language)
+      if (!ok) {
+        setPhase("idle")
+        return
+      }
+    }
     setPhase("listening")
   }
 
   const end = () => {
-    interrupt()
+    activeInterrupt()
     stopCapture()
     setPhase("ended")
     setFeedback(null)
@@ -238,14 +368,14 @@ export default function AuraVoiceConversation({
     setPhase("idle")
     setFeedback(null)
     await start()
-    greet("Of course. I'm still here.")
+    activeGreet("Of course. I'm still here.")
   }
 
   const completeCalmActivity = async (type: CareActivityType) => {
     await setConsent("companion_care", true)
     await submitCareAction("activity", type)
     setShowCalmActivity(false)
-    greet("Well done. How are you feeling now?")
+    activeGreet("Well done. How are you feeling now?")
   }
 
   useEffect(() => stopCapture, [])
@@ -253,9 +383,9 @@ export default function AuraVoiceConversation({
   const derivedPhase: Phase =
     phase === "ended" || phase === "paused"
       ? phase
-      : speaking
+      : activeSpeaking
       ? "speaking"
-      : sending || transcribing
+      : activeSending || transcribing
       ? "thinking"
       : phase === "listening"
       ? "listening"
@@ -279,15 +409,27 @@ export default function AuraVoiceConversation({
     ended: "Thank you for talking with me.",
   }
 
-  const lastAssistantIdx = [...messages].map((m, i) => ({ m, i })).reverse().find((x) => x.m.role === "assistant")?.i
-  const activeSafety = lastAssistantIdx !== undefined ? safetyBlocks[lastAssistantIdx] : undefined
-  const unavailable = status && !status.ready
-  const visibleMessages = showFullTranscript ? messages : messages.slice(-TRANSCRIPT_PREVIEW)
+  const lastAssistantIdx = [...activeMessages]
+    .map((m, i) => ({ m, i }))
+    .reverse()
+    .find((x) => x.m.role === "assistant")?.i
+  const activeSafety = lastAssistantIdx !== undefined ? activeSafetyBlocks[lastAssistantIdx] : undefined
+  const unavailable = useRealtimeMode ? realtime.status && !realtime.status.ready : status && !status.ready
+  const unavailableNote = useRealtimeMode ? realtime.status?.note : status?.note
+  const visibleMessages = showFullTranscript ? activeMessages : activeMessages.slice(-TRANSCRIPT_PREVIEW)
 
   return (
     <section className="bg-surface-container-lowest rounded-[24px] shadow-ambient-lg p-stack-md">
       {phase === "idle" && (
-        <div className="flex justify-end mb-2">
+        <div className="flex justify-end items-center gap-2 mb-2">
+          {useRealtimeMode && (
+            <span
+              title="A live, continuous connection - talk naturally and interrupt Aura anytime, instead of record-then-reply."
+              className="flex items-center gap-1 px-2 py-1 rounded-lg border border-primary bg-primary-container/20 text-primary text-xs font-medium"
+            >
+              <Zap size={12} /> Realtime
+            </span>
+          )}
           <select
             value={language}
             onChange={(e) => changeLanguage(e.target.value)}
@@ -303,9 +445,17 @@ export default function AuraVoiceConversation({
         </div>
       )}
 
+      {phase === "idle" && useRealtimeMode && (
+        <p className="text-label-sm text-on-surface-variant mb-4 text-center max-w-sm mx-auto">
+          Talk naturally - Aura is listening continuously and you can interrupt her anytime, no need to
+          wait for her to finish. Runs on a free usage tier for now, so avoid sharing anything you'd want
+          kept fully private just yet.
+        </p>
+      )}
+
       {unavailable && (
         <p className="text-label-sm text-on-surface-variant mb-4 text-center">
-          Voice conversation is temporarily unavailable: {status?.note}
+          Voice conversation is temporarily unavailable: {unavailableNote}
         </p>
       )}
 
@@ -321,10 +471,22 @@ export default function AuraVoiceConversation({
               </>
             )}
             <div className="relative w-full h-full rounded-[28px] overflow-hidden bg-primary-container/10">
-              <AvatarModule drivenAnimation={avatarAnimation} compact interactive />
+              <AvatarModule drivenAnimation={avatarAnimation} amplitude={amplitude} compact interactive forceAvatarType="orb" />
             </div>
           </div>
           <p className="text-body-lg text-on-surface font-medium mb-1">{statusText[derivedPhase]}</p>
+          {derivedPhase === "speaking" && liveCaption && (
+            <p className="text-body-md text-on-surface-variant mb-1 max-w-sm animate-fade-in-up" aria-live="polite">
+              {liveCaption.words.map((w, i) => (
+                <span
+                  key={i}
+                  className={i === liveCaption.activeIndex ? "text-primary font-semibold" : undefined}
+                >
+                  {w.text}{" "}
+                </span>
+              ))}
+            </p>
+          )}
           {phase === "idle" && (
             <p className="text-body-md text-on-surface-variant mb-4 max-w-sm">
               You don't have to know what to say. Just start talking.
@@ -337,8 +499,8 @@ export default function AuraVoiceConversation({
             </div>
           )}
 
-          {micError && (
-            <p className="text-label-sm text-error mb-3 max-w-sm">{micError}</p>
+          {activeMicError && (
+            <p className="text-label-sm text-error mb-3 max-w-sm">{activeMicError}</p>
           )}
 
           <div key={phase} className="flex items-center gap-3 animate-fade-in-up">
@@ -403,8 +565,10 @@ export default function AuraVoiceConversation({
             </div>
           )}
 
-          {/* Quick choices after Aura's very first reply */}
-          {phase === "listening" && messages.length === 2 && (
+          {/* Quick choices after Aura's very first reply - legacy mode only:
+              realtime mode has no discrete "send this text" concept, the
+              user just talks. */}
+          {!useRealtimeMode && phase === "listening" && activeMessages.length === 2 && (
             <div className="flex flex-wrap justify-center gap-2 mt-5 animate-fade-in-up">
               <button
                 onClick={() => sendStreaming("Talk more")}
@@ -431,9 +595,9 @@ export default function AuraVoiceConversation({
 
       {activeSafety && phase !== "ended" && <SafetyPanel safety={activeSafety} />}
 
-      {phase !== "idle" && phase !== "ended" && messages.length > 0 && (
+      {phase !== "idle" && phase !== "ended" && activeMessages.length > 0 && (
         <div className="rounded-xl bg-surface-container-low border border-outline-variant p-4 mb-4 max-h-72 overflow-y-auto animate-fade-in-up">
-          {!showFullTranscript && messages.length > TRANSCRIPT_PREVIEW && (
+          {!showFullTranscript && activeMessages.length > TRANSCRIPT_PREVIEW && (
             <button
               onClick={() => setShowFullTranscript(true)}
               className="text-label-sm text-primary hover:underline mb-3 transition-colors"
@@ -466,7 +630,7 @@ export default function AuraVoiceConversation({
                 Voice <span className="text-secondary font-medium">{phase === "paused" ? "Paused" : "Listening"}</span>
               </span>
               <span>
-                Speech <span className="text-secondary font-medium">{transcribing || sending ? "Processing" : "Ready"}</span>
+                Speech <span className="text-secondary font-medium">{transcribing || activeSending ? "Processing" : "Ready"}</span>
               </span>
               {onToggleCamera && (
                 <span className="flex items-center gap-1">
@@ -573,7 +737,7 @@ export default function AuraVoiceConversation({
           <button
             onClick={() => {
               setPhase("idle")
-              reset()
+              activeReset()
             }}
             className="text-label-sm text-on-surface-variant hover:text-primary mt-6 transition-colors"
           >

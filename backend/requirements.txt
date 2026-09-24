@@ -10,3 +10,4 @@ pydantic==2.9.2
 alembic==1.19.1
 psycopg2-binary==2.9.12
 google-auth==2.57.0
+websockets==17.1

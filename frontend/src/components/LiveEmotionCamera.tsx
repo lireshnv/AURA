@@ -311,7 +311,7 @@ export default function LiveEmotionCamera({
   }
 
   return (
-    <div className="relative w-full h-full rounded-xl overflow-hidden bg-slate-50 border border-slate-200">
+    <div className="relative w-full h-full rounded-xl overflow-hidden bg-surface-container-low border border-outline-variant">
       <video
         ref={videoRef}
         muted
@@ -349,9 +349,9 @@ export default function LiveEmotionCamera({
         </div>
       )}
 
-      <div className="absolute top-3 left-3 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/50 backdrop-blur text-xs font-medium text-slate-900">
+      <div className="absolute top-3 left-3 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/50 backdrop-blur text-xs font-medium text-on-surface">
         {state === "off" ? (
-          <CameraOff size={14} className="text-slate-500" />
+          <CameraOff size={14} className="text-on-surface-variant" />
         ) : (
           <span className="relative flex h-2.5 w-2.5">
             {state === "analyzing" && (
@@ -382,7 +382,7 @@ export default function LiveEmotionCamera({
       )}
 
       {!active && (
-        <div className="absolute inset-0 flex items-center justify-center text-slate-500 text-sm">
+        <div className="absolute inset-0 flex items-center justify-center text-on-surface-variant text-sm">
           Camera is off
         </div>
       )}

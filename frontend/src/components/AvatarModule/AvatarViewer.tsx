@@ -4,7 +4,9 @@ import { ContactShadows, OrbitControls } from "@react-three/drei"
 import { AvatarRenderProps, AvatarType } from "./types"
 import CustomModel, { ModelErrorBoundary } from "./models/CustomModel"
 import FoxModel from "./models/FoxModel"
-import { DogModel, CatModel, RobotModel, PlantModel, FallbackModel } from "./models/ProceduralAvatars"
+import PlantModel from "./models/PlantModel"
+import { DogModel, CatModel, RabbitModel, RobotModel, OrbModel, FallbackModel } from "./models/ProceduralAvatars"
+import CompanionEnvironment from "./CompanionEnvironment"
 
 interface Props extends AvatarRenderProps {
   avatarType: AvatarType
@@ -22,14 +24,22 @@ function SceneAvatar({ avatarType, customGlbUrl, ...render }: Props) {
           <FoxModel {...render} />
         </ModelErrorBoundary>
       )
+    case "plant":
+      return (
+        <ModelErrorBoundary fallback={<FallbackModel {...render} />}>
+          <PlantModel {...render} />
+        </ModelErrorBoundary>
+      )
     case "dog":
       return <DogModel {...render} />
     case "cat":
       return <CatModel {...render} />
+    case "rabbit":
+      return <RabbitModel {...render} />
     case "robot":
       return <RobotModel {...render} />
-    case "plant":
-      return <PlantModel {...render} />
+    case "orb":
+      return <OrbModel {...render} />
     case "custom":
       return <CustomModel glbUrl={customGlbUrl} {...render} />
     default:
@@ -45,8 +55,9 @@ export default function AvatarViewer({ interactive = true, ...props }: Props) {
   const [loadFailed, setLoadFailed] = useState(false)
 
   return (
-    <div className="w-full h-full rounded-2xl overflow-hidden bg-gradient-to-b from-surface-container-low to-surface-container-lowest">
-      <Canvas shadows camera={{ position: [0, -0.15, 3.7], fov: 34 }} dpr={[1, 2]}>
+    <div className="relative w-full h-full rounded-2xl overflow-hidden">
+      <CompanionEnvironment avatarType={props.avatarType} />
+      <Canvas shadows camera={{ position: [0, -0.15, 3.7], fov: 34 }} dpr={[1, 2]} gl={{ alpha: true }} className="!absolute inset-0">
         {/* Local lighting only - no HDRI/network fetch, so the viewer never
             hangs on a blocked or slow request. */}
         <hemisphereLight intensity={0.6} color="#f5f3ff" groundColor="#2b2033" />

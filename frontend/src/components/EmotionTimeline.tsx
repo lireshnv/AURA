@@ -20,7 +20,7 @@ export default function EmotionTimeline({ observations }: { observations: Observ
 
   if (data.length === 0) {
     return (
-      <div className="h-56 flex items-center justify-center text-sm text-slate-500">
+      <div className="h-56 flex items-center justify-center text-sm text-on-surface-variant">
         No data yet. Start analysis to see the emotion graph.
       </div>
     )

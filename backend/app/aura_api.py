@@ -41,7 +41,17 @@ from sqlalchemy.orm import Session
 from . import ivrs_store, risk_service, twin_store
 from .core.config import settings
 from .database import get_db
-from .database.models import AuditLog, CaseDocument, CaseProfile, CounsellorAssignment, Intervention, User
+from .database.models import (
+    AuditLog,
+    CaseDocument,
+    CaseProfile,
+    CaseUpdate,
+    CounsellorAssignment,
+    CounsellorProfile,
+    Intervention,
+    Profile,
+    User,
+)
 from .services.ivrs_conversation import CALL_REASONS, opening_line
 from .digital_twin import (
     BASELINE_DIMENSIONS,
@@ -51,7 +61,7 @@ from .digital_twin import (
 )
 from .risk_engine import SCORE_WEIGHTS, compute_risk, priority_score
 from .security.auth import get_current_user, require_role
-from .security.authz import can_access_victim
+from .security.authz import authorized_victim_ids, can_access_victim
 
 router = APIRouter(prefix="/api/aura", tags=["aura"])
 
@@ -125,12 +135,60 @@ CASE_TYPES = [
 ]
 _CASE_TYPE_VALUES = {c["value"] for c in CASE_TYPES}
 
+# Case journey stage - the spec's Complaint -> Investigation -> Trial ->
+# Rehabilitation -> Compensation trail, plus a terminal "closed". Ordered:
+# the Case Hub uses this list's order to draw the journey, not just to
+# validate a value.
+CASE_STAGES = [
+    {"value": "complaint", "label": "Complaint"},
+    {"value": "investigation", "label": "Investigation"},
+    {"value": "trial", "label": "Trial"},
+    {"value": "rehabilitation", "label": "Rehabilitation"},
+    {"value": "compensation", "label": "Compensation"},
+    {"value": "closed", "label": "Closed"},
+]
+_CASE_STAGE_VALUES = {s["value"] for s in CASE_STAGES}
+
+PROTECTION_STATUSES = [
+    {"value": "none", "label": "None requested"},
+    {"value": "requested", "label": "Requested"},
+    {"value": "active", "label": "Active"},
+]
+_PROTECTION_STATUS_VALUES = {s["value"] for s in PROTECTION_STATUSES}
+
+COMPENSATION_STATUSES = [
+    {"value": "none", "label": "Not applicable"},
+    {"value": "requested", "label": "Requested"},
+    {"value": "approved", "label": "Approved"},
+    {"value": "disbursed", "label": "Disbursed"},
+]
+_COMPENSATION_STATUS_VALUES = {s["value"] for s in COMPENSATION_STATUSES}
+
+REHABILITATION_STATUSES = [
+    {"value": "none", "label": "Not started"},
+    {"value": "in_progress", "label": "In progress"},
+    {"value": "completed", "label": "Completed"},
+]
+_REHABILITATION_STATUS_VALUES = {s["value"] for s in REHABILITATION_STATUSES}
+
 
 class CaseTypeUpdate(BaseModel):
     case_type: str
     notes: Optional[str] = None
     district: Optional[str] = None
     state: Optional[str] = None
+    # Case Hub fields, all optional so the existing case-type-only editor
+    # (CounsellorDashboard's CaseTypeSelector) keeps working unmodified. A
+    # field left as None means "leave this alone" - to actually reset one of
+    # these to blank, send its closed-set "none"/"complaint" value, never
+    # null. Only case_type/notes/district/state above are true overwrite-with-
+    # null fields, kept for backward compatibility with the original endpoint.
+    stage: Optional[str] = None
+    assigned_officer_name: Optional[str] = None
+    assigned_officer_contact: Optional[str] = None
+    protection_status: Optional[str] = None
+    compensation_status: Optional[str] = None
+    rehabilitation_status: Optional[str] = None
 
 
 # --- Helpers --------------------------------------------------------------
@@ -349,6 +407,40 @@ async def case_types():
     return {"success": True, "case_types": CASE_TYPES}
 
 
+@router.get("/case-stages")
+async def case_stages():
+    """Static case-journey stage options, in journey order, plus the
+    protection/compensation/rehabilitation status options the Case Hub's
+    editors use."""
+    return {
+        "success": True,
+        "stages": CASE_STAGES,
+        "protection_statuses": PROTECTION_STATUSES,
+        "compensation_statuses": COMPENSATION_STATUSES,
+        "rehabilitation_statuses": REHABILITATION_STATUSES,
+    }
+
+
+def _case_profile_payload(row: Optional[CaseProfile]) -> Dict:
+    if row is None:
+        return {
+            "has_data": False, "case_type": None, "notes": None,
+            "district": None, "state": None, "stage": "complaint",
+            "assigned_officer_name": None, "assigned_officer_contact": None,
+            "protection_status": "none", "compensation_status": "none",
+            "rehabilitation_status": "none",
+        }
+    return {
+        "has_data": True, "case_type": row.case_type, "notes": row.notes,
+        "district": row.district, "state": row.state, "stage": row.stage,
+        "assigned_officer_name": row.assigned_officer_name,
+        "assigned_officer_contact": row.assigned_officer_contact,
+        "protection_status": row.protection_status,
+        "compensation_status": row.compensation_status,
+        "rehabilitation_status": row.rehabilitation_status,
+    }
+
+
 @router.get("/case-type/{aura_id}")
 async def get_case_type(
     aura_id: str,
@@ -358,15 +450,7 @@ async def get_case_type(
     if not can_access_victim(user, aura_id, db):
         raise HTTPException(status_code=403, detail="Not authorised to view this case.")
     row = db.query(CaseProfile).filter(CaseProfile.aura_id == aura_id).first()
-    if row is None:
-        return {
-            "success": True, "has_data": False, "case_type": None, "notes": None,
-            "district": None, "state": None,
-        }
-    return {
-        "success": True, "has_data": True, "case_type": row.case_type, "notes": row.notes,
-        "district": row.district, "state": row.state,
-    }
+    return {"success": True, **_case_profile_payload(row)}
 
 
 @router.put("/case-type/{aura_id}")
@@ -376,7 +460,9 @@ async def set_case_type(
     db: Session = Depends(get_db),
     user: User = Depends(require_role("counsellor", "admin")),
 ):
-    """Classifies a case under the POA Act priority-use-case taxonomy.
+    """Sets a case's full Case Hub profile: POA Act classification plus
+    journey stage, officer contact, and protection/compensation/
+    rehabilitation status.
 
     Counsellor/admin only - this is a case-management fact, not a
     self-reported victim answer, and it drives which interventions
@@ -384,8 +470,17 @@ async def set_case_type(
     """
     if payload.case_type not in _CASE_TYPE_VALUES:
         raise HTTPException(status_code=400, detail="Unrecognised case_type.")
+    for value, allowed, name in (
+        (payload.stage, _CASE_STAGE_VALUES, "stage"),
+        (payload.protection_status, _PROTECTION_STATUS_VALUES, "protection_status"),
+        (payload.compensation_status, _COMPENSATION_STATUS_VALUES, "compensation_status"),
+        (payload.rehabilitation_status, _REHABILITATION_STATUS_VALUES, "rehabilitation_status"),
+    ):
+        if value is not None and value not in allowed:
+            raise HTTPException(status_code=400, detail=f"Unrecognised {name}.")
 
     row = db.query(CaseProfile).filter(CaseProfile.aura_id == aura_id).first()
+    previous_stage = row.stage if row else None
     if row is None:
         row = CaseProfile(
             aura_id=aura_id,
@@ -403,6 +498,21 @@ async def set_case_type(
         row.state = payload.state
         row.set_by_user_id = user.id
 
+    # Case Hub fields: only touched when actually provided (see CaseTypeUpdate
+    # docstring) so the original case-type-only editor never clobbers them.
+    if payload.stage is not None:
+        row.stage = payload.stage
+    if payload.assigned_officer_name is not None:
+        row.assigned_officer_name = payload.assigned_officer_name
+    if payload.assigned_officer_contact is not None:
+        row.assigned_officer_contact = payload.assigned_officer_contact
+    if payload.protection_status is not None:
+        row.protection_status = payload.protection_status
+    if payload.compensation_status is not None:
+        row.compensation_status = payload.compensation_status
+    if payload.rehabilitation_status is not None:
+        row.rehabilitation_status = payload.rehabilitation_status
+
     db.add(
         AuditLog(
             actor_id=user.id,
@@ -413,11 +523,145 @@ async def set_case_type(
             reason=payload.case_type,
         )
     )
+    # A stage change is a big enough moment in the case's life that it
+    # deserves its own Timeline entry, generated automatically rather than
+    # relying on the counsellor to remember to also write one by hand.
+    if payload.stage is not None and payload.stage != previous_stage:
+        stage_label = next((s["label"] for s in CASE_STAGES if s["value"] == payload.stage), payload.stage)
+        db.add(
+            CaseUpdate(
+                aura_id=aura_id,
+                author_user_id=user.id,
+                author_role=user.role,
+                category="stage",
+                title=f"Case stage moved to {stage_label}",
+                body=None,
+            )
+        )
     db.commit()
+    return {"success": True, **_case_profile_payload(row)}
+
+
+class CaseUpdateCreate(BaseModel):
+    category: str = "general"
+    title: str
+    body: Optional[str] = None
+
+
+_CASE_UPDATE_CATEGORIES = {
+    "general", "stage", "investigation", "hearing", "officer", "protection",
+    "compensation", "rehabilitation", "counselling", "support", "document",
+}
+
+
+@router.get("/case-updates/{aura_id}")
+async def list_case_updates(
+    aura_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """The Case Hub's Timeline/Updates feed - every logged event for this
+    case, newest first."""
+    if not can_access_victim(user, aura_id, db):
+        raise HTTPException(status_code=403, detail="Not authorised to view this case.")
+    rows = (
+        db.query(CaseUpdate)
+        .filter(CaseUpdate.aura_id == aura_id)
+        .order_by(CaseUpdate.created_at.desc())
+        .limit(200)
+        .all()
+    )
     return {
-        "success": True, "case_type": payload.case_type, "notes": payload.notes,
-        "district": payload.district, "state": payload.state,
+        "success": True,
+        "updates": [
+            {
+                "id": r.id,
+                "category": r.category,
+                "title": r.title,
+                "body": r.body,
+                "author_role": r.author_role,
+                "created_at": r.created_at.isoformat(),
+            }
+            for r in rows
+        ],
     }
+
+
+@router.post("/case-updates/{aura_id}")
+async def create_case_update(
+    aura_id: str,
+    payload: CaseUpdateCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Logs one Timeline/Updates entry. Anyone with case access can write one
+    (a victim noting something themselves is as legitimate a record as a
+    counsellor's) - the category set just gives professionals a finer
+    vocabulary than "general"."""
+    if not can_access_victim(user, aura_id, db):
+        raise HTTPException(status_code=403, detail="Not authorised to update this case.")
+    category = payload.category if payload.category in _CASE_UPDATE_CATEGORIES else "general"
+    if not payload.title.strip():
+        raise HTTPException(status_code=400, detail="Title is required.")
+
+    row = CaseUpdate(
+        aura_id=aura_id,
+        author_user_id=user.id,
+        author_role=user.role,
+        category=category,
+        title=payload.title.strip(),
+        body=(payload.body or "").strip() or None,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return {
+        "success": True,
+        "update": {
+            "id": row.id, "category": row.category, "title": row.title,
+            "body": row.body, "author_role": row.author_role,
+            "created_at": row.created_at.isoformat(),
+        },
+    }
+
+
+@router.get("/my-counsellor")
+async def my_counsellor(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """The calling victim's own assigned counsellor(s) - display name, title
+    and focus area only, never contact details a victim hasn't been given
+    another way. Empty list, not an error, when nobody is assigned yet."""
+    if user.role != "victim":
+        raise HTTPException(status_code=403, detail="Only a victim account has an assigned counsellor view.")
+
+    assignments = (
+        db.query(CounsellorAssignment)
+        .filter(
+            CounsellorAssignment.victim_aura_id == user.aura_id,
+            CounsellorAssignment.active.is_(True),
+        )
+        .order_by(CounsellorAssignment.created_at.asc())
+        .all()
+    )
+    counsellors = []
+    for a in assignments:
+        counsellor_user = db.query(User).filter(User.id == a.counsellor_user_id).first()
+        if counsellor_user is None:
+            continue
+        profile = db.query(Profile).filter(Profile.user_id == counsellor_user.id).first()
+        c_profile = db.query(CounsellorProfile).filter(CounsellorProfile.user_id == counsellor_user.id).first()
+        counsellors.append(
+            {
+                "user_id": counsellor_user.id,
+                "display_name": (profile.display_name if profile and profile.display_name else counsellor_user.email),
+                "title": c_profile.title if c_profile else None,
+                "focus_area": c_profile.focus_area if c_profile else None,
+                "assigned_since": a.created_at.isoformat(),
+            }
+        )
+    return {"success": True, "counsellors": counsellors}
 
 
 @router.get("/geo-overview")
@@ -734,6 +978,39 @@ async def support_history(
     }
 
 
+@router.get("/support/history-overview")
+async def support_history_overview(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Interventions across every case a counsellor/admin/guardian may see -
+    backs the multi-case Interventions pipeline on their dashboards, the
+    same way GET /api/calendar/overview backs the multi-case calendar."""
+    q = db.query(Intervention)
+    if user.role != "admin":
+        ids = authorized_victim_ids(user, db)
+        if not ids:
+            return {"success": True, "interventions": []}
+        q = q.filter(Intervention.aura_id.in_(ids))
+    rows = q.order_by(Intervention.created_at.desc()).limit(500).all()
+    return {
+        "success": True,
+        "interventions": [
+            {
+                "id": r.id,
+                "aura_id": r.aura_id,
+                "pathway": r.pathway,
+                "status": r.status,
+                "reason": r.recommended_reason,
+                "decided_by": r.decided_by,
+                "decided_at": r.decided_at.isoformat() if r.decided_at else None,
+                "created_at": r.created_at.isoformat(),
+            }
+            for r in rows
+        ],
+    }
+
+
 @router.post("/support/decision")
 async def support_decision(
     payload: SupportDecision,
@@ -783,6 +1060,39 @@ async def support_decision(
             "rationale": payload.rationale,
             "decided_by_ai": False,
         },
+    }
+
+
+@router.get("/case-documents-overview")
+async def list_case_documents_overview(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Documents across every case a counsellor/admin/guardian may see -
+    backs the multi-case Documents view, the same way
+    GET /api/calendar/overview backs the multi-case calendar."""
+    q = db.query(CaseDocument)
+    if user.role != "admin":
+        ids = authorized_victim_ids(user, db)
+        if not ids:
+            return {"success": True, "documents": []}
+        q = q.filter(CaseDocument.aura_id.in_(ids))
+    rows = q.order_by(CaseDocument.created_at.desc()).limit(500).all()
+    return {
+        "success": True,
+        "documents": [
+            {
+                "id": r.id,
+                "aura_id": r.aura_id,
+                "name": r.original_name,
+                "label": r.label,
+                "content_type": r.content_type,
+                "size_bytes": r.size_bytes,
+                "uploaded_by_role": r.uploaded_by_role,
+                "created_at": r.created_at.isoformat(),
+            }
+            for r in rows
+        ],
     }
 
 

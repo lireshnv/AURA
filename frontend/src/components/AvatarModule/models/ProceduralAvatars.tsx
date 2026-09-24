@@ -74,6 +74,7 @@ function useMouthAnimation(
   })
 }
 
+
 /** Small glossy highlight dot that sits on an eye so it reads as "alive"
  * rather than a flat black bead - shared across the chibi-style creatures. */
 function EyeShine({ position }: { position: [number, number, number] }) {
@@ -293,6 +294,149 @@ export function CatModel({ expression, animation, amplitude, lipSyncEnabled }: A
   )
 }
 
+
+export function RabbitModel({ expression, animation, amplitude, lipSyncEnabled }: AvatarRenderProps) {
+  const group = useRef<THREE.Group>(null)
+  const eyeL = useRef<THREE.Mesh>(null)
+  const eyeR = useRef<THREE.Mesh>(null)
+  const mouth = useRef<THREE.Mesh>(null)
+  const earL = useRef<THREE.Group>(null)
+  const earR = useRef<THREE.Group>(null)
+  useBlink(eyeL, eyeR)
+  useMouthAnimation(mouth, animation, amplitude, lipSyncEnabled, expression)
+
+  useFrame(({ clock }) => {
+    const t = clock.elapsedTime
+    const twitch = animation === "talking" || animation === "greeting" ? 0.18 : 0.05
+    if (earL.current) earL.current.rotation.z = 0.12 + Math.sin(t * 1.8) * twitch
+    if (earR.current) earR.current.rotation.z = -0.12 - Math.sin(t * 1.8 + 0.4) * twitch
+  })
+
+  // Same seated, full-body chibi treatment as the dog/cat, with tall
+  // upright ears and a fluffy tail instead of a long one.
+  return (
+    <IdleBob groupRef={group}>
+      <mesh position={[0, -0.62, -0.05]} scale={[0.9, 0.85, 0.88]} castShadow>
+        <sphereGeometry args={[0.6, 28, 28]} />
+        <meshStandardMaterial color="#f2eee6" roughness={0.75} />
+      </mesh>
+      {[-0.32, 0.32].map((x) => (
+        <group key={x}>
+          <mesh position={[x, -1.12, 0.4]} castShadow>
+            <capsuleGeometry args={[0.095, 0.46, 4, 8]} />
+            <meshStandardMaterial color="#f2eee6" roughness={0.75} />
+          </mesh>
+          <mesh position={[x, -1.45, 0.47]} scale={[1, 0.65, 1.15]} castShadow>
+            <sphereGeometry args={[0.11, 14, 14]} />
+            <meshStandardMaterial color="#fffdf8" roughness={0.75} />
+          </mesh>
+        </group>
+      ))}
+      <mesh position={[0, 0.33, 0.08]} scale={[1, 0.92, 0.92]} castShadow>
+        <sphereGeometry args={[0.74, 32, 32]} />
+        <meshStandardMaterial color="#f8f4ec" roughness={0.65} />
+      </mesh>
+      <mesh position={[0, 0.14, 0.78]} scale={[0.4, 0.3, 0.36]} castShadow>
+        <sphereGeometry args={[0.46, 24, 24]} />
+        <meshStandardMaterial color="#fffdf8" roughness={0.6} />
+      </mesh>
+      <mesh position={[0, 0.2, 1.06]} castShadow>
+        <sphereGeometry args={[0.07, 16, 16]} />
+        <meshStandardMaterial color="#c98ba0" roughness={0.4} />
+      </mesh>
+      <mesh ref={eyeL} position={[-0.24, 0.44, 0.82]}>
+        <sphereGeometry args={[0.115, 16, 16]} />
+        <meshStandardMaterial color="#3a2a2a" roughness={0.3} />
+      </mesh>
+      <EyeShine position={[-0.28, 0.49, 0.89]} />
+      <mesh ref={eyeR} position={[0.24, 0.44, 0.82]}>
+        <sphereGeometry args={[0.115, 16, 16]} />
+        <meshStandardMaterial color="#3a2a2a" roughness={0.3} />
+      </mesh>
+      <EyeShine position={[0.2, 0.49, 0.89]} />
+      <BlushCheeks y={0.16} z={0.8} spread={0.4} />
+      <mesh ref={mouth} position={[0, 0.02, 1.0]} rotation={[0, 0, Math.PI / 2]}>
+        <capsuleGeometry args={[0.04, 0.09, 4, 8]} />
+        <meshStandardMaterial color="#c2528f" roughness={0.5} />
+      </mesh>
+      <group ref={earL} position={[-0.3, 0.85, 0.05]} rotation={[0, 0, 0.12]}>
+        <mesh position={[0, 0.42, 0]} castShadow>
+          <capsuleGeometry args={[0.13, 0.7, 4, 12]} />
+          <meshStandardMaterial color="#f2eee6" roughness={0.75} />
+        </mesh>
+        <mesh position={[0, 0.42, 0.05]} scale={[0.55, 0.9, 0.4]}>
+          <capsuleGeometry args={[0.13, 0.7, 4, 12]} />
+          <meshStandardMaterial color="#f4c2d9" roughness={0.6} />
+        </mesh>
+      </group>
+      <group ref={earR} position={[0.3, 0.85, 0.05]} rotation={[0, 0, -0.12]}>
+        <mesh position={[0, 0.42, 0]} castShadow>
+          <capsuleGeometry args={[0.13, 0.7, 4, 12]} />
+          <meshStandardMaterial color="#f2eee6" roughness={0.75} />
+        </mesh>
+        <mesh position={[0, 0.42, 0.05]} scale={[0.55, 0.9, 0.4]}>
+          <capsuleGeometry args={[0.13, 0.7, 4, 12]} />
+          <meshStandardMaterial color="#f4c2d9" roughness={0.6} />
+        </mesh>
+      </group>
+      <mesh position={[0, -0.55, -0.6]} castShadow>
+        <sphereGeometry args={[0.16, 16, 16]} />
+        <meshStandardMaterial color="#fffdf8" roughness={0.9} />
+      </mesh>
+    </IdleBob>
+  )
+}
+
+/** Abstract, deliberately non-animal presence for a serious 1:1 analysis
+ * conversation ("Speak with Aura") rather than the companion's pet/plant
+ * identity - a layered glowing core with orbiting rings, no face. Pulses
+ * with real mic amplitude while talking/listening instead of a fixed loop,
+ * so it still reads as "live" without pretending to be a creature. */
+export function OrbModel({ animation, amplitude }: AvatarRenderProps) {
+  const group = useRef<THREE.Group>(null)
+  const core = useRef<THREE.Mesh>(null)
+  const ringA = useRef<THREE.Mesh>(null)
+  const ringB = useRef<THREE.Mesh>(null)
+  const ringC = useRef<THREE.Mesh>(null)
+
+  useFrame(({ clock }) => {
+    const t = clock.elapsedTime
+    const active = animation === "talking" || animation === "listening"
+    const pulse = active ? 1 + amplitude * 0.5 + Math.sin(t * 5) * 0.04 : 1 + Math.sin(t * 1.4) * 0.03
+    if (core.current) core.current.scale.setScalar(THREE.MathUtils.lerp(core.current.scale.x, pulse, 0.25))
+    const coreMat = core.current?.material as THREE.MeshStandardMaterial | undefined
+    if (coreMat) coreMat.emissiveIntensity = active ? 0.9 + amplitude * 0.8 : 0.55 + Math.sin(t * 1.4) * 0.15
+    if (ringA.current) ringA.current.rotation.z = t * 0.5
+    if (ringB.current) ringB.current.rotation.x = t * 0.4
+    if (ringB.current) ringB.current.rotation.z = t * 0.25
+    if (ringC.current) ringC.current.rotation.y = t * 0.6
+    if (group.current) group.current.position.y = Math.sin(t * 1.1) * 0.04
+    if (group.current) group.current.rotation.y = t * 0.12
+  })
+
+  return (
+    <group ref={group}>
+      <mesh ref={core} position={[0, 0.1, 0]}>
+        <icosahedronGeometry args={[0.62, 2]} />
+        <meshStandardMaterial color="#7c3aed" emissive="#a78bfa" emissiveIntensity={0.6} roughness={0.25} metalness={0.15} />
+      </mesh>
+      <mesh ref={ringA} position={[0, 0.1, 0]} rotation={[Math.PI / 2.4, 0, 0]}>
+        <torusGeometry args={[0.95, 0.012, 8, 64]} />
+        <meshStandardMaterial color="#c4b5fd" emissive="#a78bfa" emissiveIntensity={0.8} />
+      </mesh>
+      <mesh ref={ringB} position={[0, 0.1, 0]} rotation={[0.3, Math.PI / 3, 0]}>
+        <torusGeometry args={[1.15, 0.008, 8, 64]} />
+        <meshStandardMaterial color="#8b5cf6" emissive="#8b5cf6" emissiveIntensity={0.6} transparent opacity={0.7} />
+      </mesh>
+      <mesh ref={ringC} position={[0, 0.1, 0]} rotation={[Math.PI / 1.6, Math.PI / 5, 0]}>
+        <torusGeometry args={[0.78, 0.006, 8, 64]} />
+        <meshStandardMaterial color="#ddd6fe" emissive="#c4b5fd" emissiveIntensity={0.7} transparent opacity={0.6} />
+      </mesh>
+      <pointLight position={[0, 0.1, 0]} intensity={1.1} color="#a78bfa" distance={4} />
+    </group>
+  )
+}
+
 export function RobotModel({ expression, animation, amplitude, lipSyncEnabled }: AvatarRenderProps) {
   const group = useRef<THREE.Group>(null)
   const eyeL = useRef<THREE.Mesh>(null)
@@ -349,51 +493,6 @@ export function RobotModel({ expression, animation, amplitude, lipSyncEnabled }:
         <meshStandardMaterial color="#c7cbd1" metalness={0.6} roughness={0.35} />
       </mesh>
     </IdleBob>
-  )
-}
-
-export function PlantModel({ animation }: AvatarRenderProps) {
-  const group = useRef<THREE.Group>(null)
-  const leaves = useRef<THREE.Group>(null)
-
-  useFrame(({ clock }) => {
-    const t = clock.elapsedTime
-    const sway = animation === "talking" ? 0.12 : 0.05
-    if (leaves.current) leaves.current.rotation.z = Math.sin(t * 1.1) * sway
-    if (group.current) group.current.position.y = Math.sin(t * 0.9) * 0.03
-  })
-
-  const leafPositions: [number, number, number, number][] = [
-    [0, 0.9, 0, 0],
-    [0.25, 0.7, 0.1, 0.6],
-    [-0.25, 0.65, -0.1, -0.6],
-    [0, 0.5, 0.28, 1.4],
-    [0, 0.5, -0.28, -1.4],
-  ]
-
-  return (
-    <group ref={group}>
-      <mesh position={[0, -0.55, 0]} castShadow>
-        <cylinderGeometry args={[0.55, 0.65, 0.5, 24]} />
-        <meshStandardMaterial color="#b98a5a" roughness={0.9} />
-      </mesh>
-      <mesh position={[0, -0.32, 0]}>
-        <cylinderGeometry args={[0.5, 0.55, 0.06, 24]} />
-        <meshStandardMaterial color="#4d3b28" roughness={1} />
-      </mesh>
-      <group ref={leaves}>
-        <mesh position={[0, -0.1, 0]} castShadow>
-          <cylinderGeometry args={[0.04, 0.05, 0.8, 8]} />
-          <meshStandardMaterial color="#4d7c2e" roughness={0.8} />
-        </mesh>
-        {leafPositions.map(([x, y, z, rot], i) => (
-          <mesh key={i} position={[x, y, z]} rotation={[0.3, rot, 0.4]} castShadow>
-            <sphereGeometry args={[0.3, 16, 16, 0, Math.PI]} />
-            <meshStandardMaterial color={i % 2 === 0 ? "#5a9337" : "#4d7c2e"} roughness={0.75} side={THREE.DoubleSide} />
-          </mesh>
-        ))}
-      </group>
-    </group>
   )
 }
 

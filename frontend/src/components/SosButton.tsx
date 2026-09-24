@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { AlertTriangle, X, Loader2, CheckCircle2, XCircle } from "lucide-react"
 import { getBestEffortLocation, triggerSos } from "../lib/sosApi"
 
@@ -20,10 +20,20 @@ type Phase = "idle" | "confirm" | "sending" | "sent" | "failed"
  * event server-side. Nothing here is a fake contact, location, or demo event
  * - "Sent" only ever means the event was actually written to the store.
  */
-export default function SosButton({ page }: { page: string }) {
+export default function SosButton({ page, externalTrigger }: { page: string; externalTrigger?: number }) {
   const [phase, setPhase] = useState<Phase>("idle")
   const [locationIncluded, setLocationIncluded] = useState(false)
   const [sentAt, setSentAt] = useState<string | null>(null)
+  const lastTriggerRef = useRef(externalTrigger)
+
+  // Lets a caller elsewhere in the tree (e.g. Victim Home's "I'm not feeling
+  // safe" tile) open the SAME real confirm flow as the floating button,
+  // rather than duplicating SOS logic in a second place.
+  useEffect(() => {
+    if (externalTrigger === undefined || externalTrigger === lastTriggerRef.current) return
+    lastTriggerRef.current = externalTrigger
+    setPhase("confirm")
+  }, [externalTrigger])
 
   const reset = () => {
     setPhase("idle")

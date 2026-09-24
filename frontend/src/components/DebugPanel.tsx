@@ -28,16 +28,16 @@ function ScoreBars({
         const isTop = k === highlight
         return (
           <div key={k} className="flex items-center gap-2 text-[11px]">
-            <span className={`w-16 ${isTop ? "text-slate-900 font-semibold" : "text-slate-500"}`}>
+            <span className={`w-16 ${isTop ? "text-on-surface font-semibold" : "text-on-surface-variant"}`}>
               {k}
             </span>
-            <div className="flex-1 h-1.5 rounded-full bg-slate-200 overflow-hidden">
+            <div className="flex-1 h-1.5 rounded-full bg-surface-container-high overflow-hidden">
               <div
                 className={`h-full ${isTop ? color : "bg-slate-600"}`}
                 style={{ width: `${Math.min(100, v)}%` }}
               />
             </div>
-            <span className={`w-9 text-right ${isTop ? "text-slate-900" : "text-slate-500"}`}>
+            <span className={`w-9 text-right ${isTop ? "text-on-surface" : "text-on-surface-variant"}`}>
               {v.toFixed(0)}%
             </span>
           </div>
@@ -51,7 +51,7 @@ function SignalRows({ signals }: { signals: Record<string, number> }) {
   const entries = Object.entries(signals).filter(([, v]) => v > 0.5)
   if (entries.length === 0) {
     return (
-      <p className="text-[11px] text-slate-500">
+      <p className="text-[11px] text-on-surface-variant">
         All geometric signals at baseline (face at rest).
       </p>
     )
@@ -62,11 +62,11 @@ function SignalRows({ signals }: { signals: Record<string, number> }) {
         .sort((a, b) => b[1] - a[1])
         .map(([k, v]) => (
           <div key={k} className="flex items-center gap-2 text-[11px]">
-            <span className="w-32 text-slate-500">{k.replace(/_/g, " ")}</span>
-            <div className="flex-1 h-1.5 rounded-full bg-slate-200 overflow-hidden">
+            <span className="w-32 text-on-surface-variant">{k.replace(/_/g, " ")}</span>
+            <div className="flex-1 h-1.5 rounded-full bg-surface-container-high overflow-hidden">
               <div className="h-full bg-violet-500" style={{ width: `${Math.min(100, v)}%` }} />
             </div>
-            <span className="w-9 text-right text-slate-600">{v.toFixed(0)}%</span>
+            <span className="w-9 text-right text-on-surface-variant">{v.toFixed(0)}%</span>
           </div>
         ))}
     </div>
@@ -99,10 +99,10 @@ export default function DebugPanel({ metrics }: { metrics: DebugMetrics }) {
   ]
 
   return (
-    <div className="rounded-xl bg-white border border-slate-200 overflow-hidden">
+    <div className="rounded-xl bg-surface-container-lowest border border-outline-variant overflow-hidden">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between px-4 py-2.5 text-xs uppercase tracking-wide text-slate-500 hover:text-slate-900"
+        className="w-full flex items-center justify-between px-4 py-2.5 text-xs uppercase tracking-wide text-on-surface-variant hover:text-on-surface"
       >
         <span className="flex items-center gap-2">
           <Bug size={13} />
@@ -121,7 +121,7 @@ export default function DebugPanel({ metrics }: { metrics: DebugMetrics }) {
           {debug && emotion && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <div>
-                <h4 className="text-[10px] uppercase tracking-wide text-slate-500 mb-1.5">
+                <h4 className="text-[10px] uppercase tracking-wide text-on-surface-variant mb-1.5">
                   Raw DeepFace (one signal — not the verdict)
                 </h4>
                 <ScoreBars
@@ -131,7 +131,7 @@ export default function DebugPanel({ metrics }: { metrics: DebugMetrics }) {
                 />
               </div>
               <div>
-                <h4 className="text-[10px] uppercase tracking-wide text-slate-500 mb-1.5">
+                <h4 className="text-[10px] uppercase tracking-wide text-on-surface-variant mb-1.5">
                   Final fusion (what the dashboard shows)
                 </h4>
                 <ScoreBars
@@ -146,7 +146,7 @@ export default function DebugPanel({ metrics }: { metrics: DebugMetrics }) {
           {debug && (
             <>
               <div>
-                <h4 className="text-[10px] uppercase tracking-wide text-slate-500 mb-1.5">
+                <h4 className="text-[10px] uppercase tracking-wide text-on-surface-variant mb-1.5">
                   Geometric evidence (vs. personal baseline)
                 </h4>
                 <SignalRows signals={debug.signals} />
@@ -163,9 +163,9 @@ export default function DebugPanel({ metrics }: { metrics: DebugMetrics }) {
                   ["yaw / pitch", `${debug.yaw_ratio.toFixed(2)} / ${debug.pitch_ratio.toFixed(2)}`],
                   ["roll", `${debug.roll_degrees.toFixed(1)}°`],
                 ].map(([label, value]) => (
-                  <div key={label} className="flex justify-between border-b border-slate-200 py-0.5">
-                    <span className="text-slate-500">{label}</span>
-                    <span className="text-slate-700">{value}</span>
+                  <div key={label} className="flex justify-between border-b border-outline-variant py-0.5">
+                    <span className="text-on-surface-variant">{label}</span>
+                    <span className="text-on-surface">{value}</span>
                   </div>
                 ))}
               </div>
@@ -174,13 +174,13 @@ export default function DebugPanel({ metrics }: { metrics: DebugMetrics }) {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 font-mono text-[11px] pt-1">
             {statusRows.map(([label, value]) => (
-              <div key={label} className="flex justify-between border-b border-slate-200 py-0.5">
-                <span className="text-slate-500">{label}</span>
+              <div key={label} className="flex justify-between border-b border-outline-variant py-0.5">
+                <span className="text-on-surface-variant">{label}</span>
                 <span
                   className={
                     label === "Last error" && value !== "None"
                       ? "text-rose-600 text-right max-w-[60%] truncate"
-                      : "text-slate-700 text-right max-w-[60%] truncate"
+                      : "text-on-surface text-right max-w-[60%] truncate"
                   }
                   title={value}
                 >

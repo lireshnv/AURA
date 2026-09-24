@@ -595,6 +595,66 @@ class CaseProfile(Base, TimestampMixin):
     district: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     state: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
 
+    # Case journey/lifecycle - the stage a POA Act case is actually at, shown
+    # as the Case Hub's headline fact. Free string validated against a closed
+    # set at the API layer (CASE_STAGES in aura_api.py), same pattern as
+    # case_type above - not a DB-level enum, so adding a stage never needs a
+    # migration.
+    stage: Mapped[str] = mapped_column(String(30), default="complaint", index=True)
+    assigned_officer_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    assigned_officer_contact: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # none | requested | active
+    protection_status: Mapped[str] = mapped_column(String(20), default="none")
+    # none | requested | approved | disbursed
+    compensation_status: Mapped[str] = mapped_column(String(20), default="none")
+    # none | in_progress | completed
+    rehabilitation_status: Mapped[str] = mapped_column(String(20), default="none")
+
+
+class CaseUpdate(Base, TimestampMixin):
+    """One entry in a case's Timeline/Updates - a human-written note attached
+    to a stage change, a hearing, an officer interaction, a support decision,
+    or just a general update. This is the append-only record the Case Hub's
+    Timeline/Updates tabs read from; unlike CaseProfile (current snapshot),
+    every row here is kept forever so the case's history is reconstructable."""
+
+    __tablename__ = "case_updates"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    aura_id: Mapped[str] = mapped_column(String(40), index=True)
+    author_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    author_role: Mapped[str] = mapped_column(String(20))
+    # general | stage | investigation | hearing | officer | protection |
+    # compensation | rehabilitation | counselling | support | document
+    category: Mapped[str] = mapped_column(String(30), default="general", index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class CalendarEvent(Base, TimestampMixin):
+    """One entry on the shared Aura Calendar. Every role's calendar view
+    (victim/counsellor/admin/guardian) reads from this same table, scoped by
+    the same can_access_victim() authorization already used for cases and
+    documents - there is deliberately no separate per-role events table."""
+
+    __tablename__ = "calendar_events"
+    __table_args__ = (Index("ix_calendar_events_aura_start", "aura_id", "starts_at"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    aura_id: Mapped[str] = mapped_column(String(40), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    # hearing | appointment | counselling_session | checkin | officer_meeting
+    # | deadline | rehabilitation | compensation | reminder | personal_note
+    event_type: Mapped[str] = mapped_column(String(30), default="appointment", index=True)
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    location: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_by_role: Mapped[str] = mapped_column(String(20))
+    # scheduled | completed | cancelled
+    status: Mapped[str] = mapped_column(String(20), default="scheduled", index=True)
+
 
 class CaseDocument(Base, TimestampMixin):
     """A file attached to a case for tracking purposes - an FIR copy, medical

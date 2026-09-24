@@ -35,8 +35,8 @@ function BreathingActivity({ onComplete }: { onComplete: () => void }) {
         className="w-24 h-24 rounded-full bg-violet-200 border-2 border-violet-400"
         style={{ transform: `scale(${scale})`, transition: "transform 4s ease-in-out" }}
       />
-      <p className="text-sm text-slate-600">{label}</p>
-      <p className="text-xs text-slate-400">{cycles} cycle{cycles === 1 ? "" : "s"} completed</p>
+      <p className="text-sm text-on-surface-variant">{label}</p>
+      <p className="text-xs text-on-surface-variant">{cycles} cycle{cycles === 1 ? "" : "s"} completed</p>
       <button
         onClick={onComplete}
         disabled={cycles < 1}
@@ -60,12 +60,12 @@ export function ActivityModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xl w-full max-w-sm p-5">
+      <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant shadow-xl w-full max-w-sm p-5">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-slate-900">
+          <h3 className="text-sm font-semibold text-on-surface">
             {selected ? ACTIVITIES.find((a) => a.type === selected)?.label : "Choose an activity"}
           </h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+          <button onClick={onClose} className="text-on-surface-variant hover:text-on-surface-variant">
             <X size={16} />
           </button>
         </div>
@@ -76,11 +76,11 @@ export function ActivityModal({
               <button
                 key={a.type}
                 onClick={() => setSelected(a.type)}
-                className="flex flex-col items-center gap-1.5 rounded-xl border border-slate-200 p-3 hover:bg-slate-50 text-center"
+                className="flex flex-col items-center gap-1.5 rounded-xl border border-outline-variant p-3 hover:bg-surface-container-low text-center"
               >
                 <a.icon size={20} className="text-violet-600" />
-                <span className="text-xs font-medium text-slate-700">{a.label}</span>
-                <span className="text-[10px] text-slate-400">{a.description}</span>
+                <span className="text-xs font-medium text-on-surface">{a.label}</span>
+                <span className="text-[10px] text-on-surface-variant">{a.description}</span>
               </button>
             ))}
           </div>
@@ -95,7 +95,7 @@ export function ActivityModal({
               onChange={(e) => setNote(e.target.value)}
               rows={5}
               placeholder="Write whatever you'd like. This stays on your device only."
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none"
+              className="w-full rounded-lg border border-outline-variant px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none"
             />
             <button
               onClick={() => onComplete("journaling")}
@@ -109,7 +109,7 @@ export function ActivityModal({
 
         {(selected === "walking" || selected === "relaxation") && (
           <div className="flex flex-col items-center gap-3 py-4 text-center">
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-on-surface-variant">
               {selected === "walking"
                 ? "Take a short walk whenever you're ready."
                 : "Take a few minutes to relax, at your own pace."}
@@ -160,11 +160,11 @@ export function CareReactionPanel({ kind, onDone }: { kind: ReactionKind; onDone
           <Icon size={18} />
         </span>
       ))}
-      <div className="animate-care-pop bg-white/95 border border-slate-200 shadow-lg rounded-xl px-4 py-2.5 flex items-center gap-2.5">
+      <div className="animate-care-pop bg-surface-container-lowest/95 border border-outline-variant shadow-lg rounded-xl px-4 py-2.5 flex items-center gap-2.5">
         <Icon size={18} className={color} />
         <div className="text-left">
-          <p className="text-xs font-semibold text-slate-900">{title}</p>
-          <p className="text-[11px] text-slate-500">{detail}</p>
+          <p className="text-xs font-semibold text-on-surface">{title}</p>
+          <p className="text-[11px] text-on-surface-variant">{detail}</p>
         </div>
       </div>
     </div>

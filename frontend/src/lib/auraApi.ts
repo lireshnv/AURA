@@ -223,8 +223,32 @@ export interface InterventionRecord {
   created_at: string
 }
 
+export interface InterventionOverviewRecord extends InterventionRecord {
+  aura_id: string
+}
+
+/** Interventions across every case the signed-in counsellor/admin/guardian
+ * is authorised to see - backs the multi-case Interventions pipeline. */
+export const fetchSupportHistoryOverview = () =>
+  getJson<{ success: boolean; interventions: InterventionOverviewRecord[] }>(`${AURA}/support/history-overview`)
+
 export const fetchCaseTypes = () =>
   getJson<{ success: boolean; case_types: CaseTypeOption[] }>(`${AURA}/case-types`)
+
+export type CaseStage = "complaint" | "investigation" | "trial" | "rehabilitation" | "compensation" | "closed"
+export type ProtectionStatus = "none" | "requested" | "active"
+export type CompensationStatus = "none" | "requested" | "approved" | "disbursed"
+export type RehabilitationStatus = "none" | "in_progress" | "completed"
+
+export interface CaseStageOptions {
+  success: boolean
+  stages: CaseTypeOption[]
+  protection_statuses: CaseTypeOption[]
+  compensation_statuses: CaseTypeOption[]
+  rehabilitation_statuses: CaseTypeOption[]
+}
+
+export const fetchCaseStageOptions = () => getJson<CaseStageOptions>(`${AURA}/case-stages`)
 
 export interface CaseTypeRecord {
   success: boolean
@@ -233,6 +257,12 @@ export interface CaseTypeRecord {
   notes: string | null
   district: string | null
   state: string | null
+  stage: CaseStage
+  assigned_officer_name: string | null
+  assigned_officer_contact: string | null
+  protection_status: ProtectionStatus
+  compensation_status: CompensationStatus
+  rehabilitation_status: RehabilitationStatus
 }
 
 export const fetchCaseType = (auraId: string) => getJson<CaseTypeRecord>(`${AURA}/case-type/${auraId}`)
@@ -240,7 +270,17 @@ export const fetchCaseType = (auraId: string) => getJson<CaseTypeRecord>(`${AURA
 export async function setCaseType(
   auraId: string,
   caseType: string,
-  extra?: { notes?: string; district?: string; state?: string }
+  extra?: {
+    notes?: string
+    district?: string
+    state?: string
+    stage?: CaseStage
+    assigned_officer_name?: string
+    assigned_officer_contact?: string
+    protection_status?: ProtectionStatus
+    compensation_status?: CompensationStatus
+    rehabilitation_status?: RehabilitationStatus
+  }
 ) {
   try {
     const res = await fetch(`${AURA}/case-type/${auraId}`, {
@@ -343,6 +383,15 @@ export interface CaseDocumentRecord {
 export const fetchCaseDocuments = (auraId: string) =>
   getJson<{ success: boolean; documents: CaseDocumentRecord[] }>(`${AURA}/case-documents/${auraId}`)
 
+export interface CaseDocumentOverviewRecord extends CaseDocumentRecord {
+  aura_id: string
+}
+
+/** Documents across every case the signed-in counsellor/admin/guardian is
+ * authorised to see - backs the multi-case Documents view. */
+export const fetchCaseDocumentsOverview = () =>
+  getJson<{ success: boolean; documents: CaseDocumentOverviewRecord[] }>(`${AURA}/case-documents-overview`)
+
 export async function uploadCaseDocument(auraId: string, file: File, label?: string) {
   try {
     const form = new FormData()
@@ -393,6 +442,52 @@ export async function deleteCaseDocument(auraId: string, documentId: string) {
       credentials: "include",
     })
     return await res.json().catch(() => ({ success: res.ok }))
+  } catch {
+    return { success: false, error: "Could not reach the server." }
+  }
+}
+
+// --- My Counsellor -----------------------------------------------------------
+
+export interface MyCounsellorRecord {
+  user_id: string
+  display_name: string
+  title: string | null
+  focus_area: string | null
+  assigned_since: string
+}
+
+export const fetchMyCounsellor = () =>
+  getJson<{ success: boolean; counsellors: MyCounsellorRecord[] }>(`${AURA}/my-counsellor`)
+
+// --- Case Hub: Timeline / Updates -------------------------------------------
+
+export interface CaseUpdateRecord {
+  id: string
+  category: string
+  title: string
+  body: string | null
+  author_role: string
+  created_at: string
+}
+
+export const fetchCaseUpdates = (auraId: string) =>
+  getJson<{ success: boolean; updates: CaseUpdateRecord[] }>(`${AURA}/case-updates/${auraId}`)
+
+export async function createCaseUpdate(
+  auraId: string,
+  payload: { category?: string; title: string; body?: string }
+) {
+  try {
+    const res = await fetch(`${AURA}/case-updates/${auraId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeader() },
+      credentials: "include",
+      body: JSON.stringify(payload),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) return { success: false, error: data.detail ?? "Could not add the update." }
+    return { success: true, ...data }
   } catch {
     return { success: false, error: "Could not reach the server." }
   }

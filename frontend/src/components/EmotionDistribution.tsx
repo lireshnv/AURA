@@ -20,7 +20,7 @@ export default function EmotionDistribution({
   if (!scores || total <= 0) {
     return (
       <div className="h-48 flex items-center justify-center">
-        <p className="text-sm text-slate-400">{emptyLabel}</p>
+        <p className="text-sm text-on-surface-variant">{emptyLabel}</p>
       </div>
     )
   }

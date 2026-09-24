@@ -113,14 +113,21 @@ export async function streamChatMessage(
   language: string | undefined,
   voiceMode: boolean,
   handlers: StreamHandlers,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  turnId?: string
 ): Promise<void> {
   let res: Response
   try {
     res = await fetch(`${CHAT}/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, session_id: sessionId, language, voice_mode: voiceMode }),
+      body: JSON.stringify({
+        message,
+        session_id: sessionId,
+        language,
+        voice_mode: voiceMode,
+        turn_id: turnId,
+      }),
       signal,
     })
   } catch {
@@ -258,4 +265,86 @@ export async function speakText(text: string): Promise<string | null> {
   } catch {
     return null
   }
+}
+
+export interface SpeechAlignment {
+  characters: string[]
+  character_start_times_seconds: number[]
+  character_end_times_seconds: number[]
+}
+
+export interface SpeechChunk {
+  audio_base64: string
+  alignment?: SpeechAlignment
+  normalized_alignment?: SpeechAlignment
+}
+
+export interface SpeechStreamHandlers {
+  onChunk: (chunk: SpeechChunk) => void
+}
+
+/**
+ * Streams TTS for one sentence as newline-delimited JSON, so playback (and
+ * word highlighting, via each chunk's `alignment`) can start on the first
+ * chunk instead of waiting for the whole sentence to synthesize.
+ *
+ * Returns whether at least one usable chunk arrived. `false` means "nothing
+ * streamed" (ElevenLabs unavailable, network failure, or an interrupt before
+ * the first byte) - the caller falls back to the batch speakText() above,
+ * never leaving the reply unspoken because streaming alone failed.
+ */
+export async function streamSpeech(
+  text: string,
+  handlers: SpeechStreamHandlers,
+  signal?: AbortSignal
+): Promise<boolean> {
+  let res: Response
+  try {
+    res = await fetch(`${CHAT}/speak/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+      signal,
+    })
+  } catch {
+    return false
+  }
+  if (!res.ok || !res.body) return false
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ""
+  let receivedAny = false
+
+  const consumeLine = (line: string) => {
+    const trimmed = line.trim()
+    if (!trimmed) return
+    try {
+      const chunk = JSON.parse(trimmed) as SpeechChunk
+      if (chunk.audio_base64) {
+        receivedAny = true
+        handlers.onChunk(chunk)
+      }
+    } catch {
+      /* malformed line - skip it, the rest of the stream still matters */
+    }
+  }
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split("\n")
+      buffer = lines.pop() ?? ""
+      for (const line of lines) consumeLine(line)
+    }
+    if (buffer.trim()) consumeLine(buffer)
+  } catch (err) {
+    if ((err as Error)?.name !== "AbortError") {
+      /* a dropped stream mid-sentence is non-fatal - whatever audio already
+         played/scheduled stays; the caller just doesn't get more chunks */
+    }
+  }
+  return receivedAny
 }
