@@ -242,6 +242,15 @@ def _build_messages(
     return messages
 
 
+def _tool_kwargs(tool_choice: str) -> Dict:
+    """The web-search tool arguments, or nothing at all when search isn't
+    installed. Passing tools=None/tool_choice=None is not the same as leaving
+    them out: the Groq client sends a literal null, which the API rejects."""
+    if not _SEARCH_AVAILABLE:
+        return {}
+    return {"tools": [WEB_SEARCH_TOOL], "tool_choice": tool_choice}
+
+
 def chat(
     message: str,
     history: Optional[List[Dict]] = None,
@@ -283,9 +292,8 @@ def chat(
             response = client.chat.completions.create(
                 model=MODEL,
                 messages=messages,
-                tools=[WEB_SEARCH_TOOL] if _SEARCH_AVAILABLE else None,
-                tool_choice="auto" if _SEARCH_AVAILABLE else None,
                 max_tokens=MAX_TOKENS,
+                **_tool_kwargs("auto"),
             )
             response_message = response.choices[0].message
             tool_calls = getattr(response_message, "tool_calls", None)
@@ -324,9 +332,8 @@ def chat(
         final = client.chat.completions.create(
             model=MODEL,
             messages=messages,
-            tools=[WEB_SEARCH_TOOL] if _SEARCH_AVAILABLE else None,
-            tool_choice="none",
             max_tokens=MAX_TOKENS,
+            **_tool_kwargs("none"),
         )
         return ChatResult(
             reply=final.choices[0].message.content or "",

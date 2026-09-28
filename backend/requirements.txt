@@ -19,3 +19,4 @@ SQLAlchemy==2.0.52
 # AI companion chat + acoustic voice features (were installed only by hand)
 groq==1.7.0
 librosa==0.10.2.post1
+duckduckgo_search==8.1.1
