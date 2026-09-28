@@ -27,6 +27,7 @@ TRAJECTORIES: Dict[str, Callable[[float], float]] = {
     "volatile": lambda t: 1.8 * math.sin(t * 5 * math.pi),
     "slipping": lambda t: -1.6 * t,
     "recovering_after_dip": lambda t: -3.0 * math.exp(-((t - 0.45) ** 2) / 0.02),
+    "crisis": lambda t: 0.0 if t < 0.65 else -5.5 * (t - 0.65) / 0.35,
 }
 
 # (trajectory, normal wellbeing level, chance of checking in on a given day)
@@ -38,7 +39,7 @@ PROFILES = [
     ("slipping", 7.0, 0.6),
     ("recovering_after_dip", 7.3, 0.85),
     ("steady", 6.1, 0.55),
-    ("declining", 6.9, 0.9),
+    ("crisis", 7.2, 0.95),
     ("improving", 6.4, 0.7),
     ("volatile", 7.1, 0.8),
 ]
@@ -86,8 +87,13 @@ def seed_victim(aura_id: str, profile_index: int) -> Dict[str, int]:
     for days_ago in range(DAYS, -1, -1):
         t = 1 - days_ago / DAYS
         offset = trajectory(t)
-        # Always include the last two days so every dashboard has a recent point.
-        if days_ago > 1 and rng.random() > engagement:
+        # A person in crisis typically withdraws: check-ins become sporadic
+        # just as things get worse, which is itself a warning sign.
+        in_crisis = trajectory_name == "crisis" and t >= 0.65
+        chance = 0.4 if in_crisis else engagement
+        # Always include the last two days so every dashboard has a recent
+        # point - except in crisis, where the gap is the point.
+        if (days_ago > 1 or in_crisis) and rng.random() > chance:
             continue
         when = now - timedelta(days=days_ago, hours=rng.randint(0, 10), minutes=rng.randint(0, 59))
         values = {
@@ -98,14 +104,16 @@ def seed_victim(aura_id: str, profile_index: int) -> Dict[str, int]:
             counts["checkins"] += 1
         mood = sum(values.values()) / len(values)
 
-        if days_ago % 3 == 0:
-            negative = round(_clamp((7.5 - mood) / 7.5 + rng.uniform(-0.08, 0.08), 0.02, 0.95), 2)
+        if days_ago % 3 == 0 or in_crisis:
+            # Percentages (0-100), the same scale the real sentiment pipeline
+            # stores and compute_risk() expects.
+            negative = round(_clamp((7.5 - mood) / 7.5 * 100 + rng.uniform(-8, 8), 2, 95), 1)
             record = {
                 "emotion_dominant": _emotion_for(mood, rng),
-                "emotion_confidence": round(rng.uniform(55, 88), 1),
-                "sentiment_dominant": "negative" if negative > 0.5 else "neutral" if negative > 0.2 else "positive",
-                "sentiment_scores": {"negative": negative, "neutral": round((1 - negative) * 0.7, 2),
-                                     "positive": round((1 - negative) * 0.3, 2)},
+                "emotion_confidence": round(rng.uniform(30, 50) if in_crisis else rng.uniform(55, 88), 1),
+                "sentiment_dominant": "negative" if negative > 50 else "neutral" if negative > 20 else "positive",
+                "sentiment_scores": {"negative": negative, "neutral": round((100 - negative) * 0.7, 1),
+                                     "positive": round((100 - negative) * 0.3, 1)},
                 "voice_available": True,
                 "text_available": True,
                 "modalities": ["voice", "text"],
