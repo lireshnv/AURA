@@ -660,11 +660,8 @@ async def geo_overview(
     what makes a case visible here - an unclassified aura_id has nowhere to
     roll up to). Risk is computed the same way /cases does, via _assess().
 
-    SCOPE NOTE: this rolls up whatever CaseProfiles exist, but the underlying
-    well-being store (twin_store) is still the single-user prototype
-    documented in SECURITY_POSTURE - so today this reflects at most the one
-    real dataset that exists, not a true multi-district population. The
-    aggregation logic itself is written to scale once that is fixed.
+    Each case's risk comes from that victim's own twin_store data (scoped
+    per aura_id), so the rollup is a genuine per-person aggregation.
     """
     profiles = db.query(CaseProfile).all()
 

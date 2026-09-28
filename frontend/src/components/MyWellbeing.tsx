@@ -234,12 +234,12 @@ function OverviewBento({
         )}
       </div>
 
-      {/* Distress trend - 7d / 30d toggle over the real self-report series */}
+      {/* Wellbeing trend - 7d / 30d toggle over the real self-report series (higher is better) */}
       <div className="col-span-1 md:col-span-7 bg-surface-container-lowest rounded-[24px] p-stack-md card-shadow flex flex-col min-h-[380px]">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-headline-md text-on-surface flex items-center gap-2">
             <span className="material-symbols-outlined text-primary">show_chart</span>
-            Distress Trend
+            Wellbeing Trend
           </h2>
           <div className="flex gap-1 bg-surface-container-low rounded-full p-0.5">
             {([7, 30] as const).map((d) => (
@@ -283,7 +283,7 @@ function OverviewBento({
       <div className="col-span-1 md:col-span-6 bg-surface-container-lowest rounded-[24px] p-stack-md card-shadow flex flex-col min-h-[280px]">
         <h2 className="text-headline-md text-on-surface flex items-center gap-2 mb-4">
           <span className="material-symbols-outlined text-secondary">mood</span>
-          Mood Trend
+          Negative Sentiment
         </h2>
         {moodSeries.length < 2 ? (
           <NotEnoughData />
