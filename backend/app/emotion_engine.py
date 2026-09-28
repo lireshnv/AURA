@@ -2,9 +2,16 @@
 from typing import Dict
 
 import numpy as np
-from deepface import DeepFace
 
 from . import config
+
+# Optional: DeepFace pulls in TensorFlow (~1 GB of memory), which a small
+# free host can't fit. Without it, face frames are already rejected upstream
+# in face_preprocessing, so analyze_emotion is never reached.
+try:
+    from deepface import DeepFace
+except ImportError:  # pragma: no cover - depends on the install profile
+    DeepFace = None
 
 
 def analyze_emotion(face_crop: np.ndarray) -> Dict[str, float]:
@@ -13,6 +20,8 @@ def analyze_emotion(face_crop: np.ndarray) -> Dict[str, float]:
     enforce_detection is disabled because face presence was already confirmed by
     the MediaPipe preprocessing stage - re-detecting here would be redundant work.
     """
+    if DeepFace is None:
+        raise RuntimeError("Face emotion analysis is not installed on this deployment.")
     result = DeepFace.analyze(
         img_path=face_crop,
         actions=["emotion"],
@@ -34,6 +43,9 @@ def analyze_emotion(face_crop: np.ndarray) -> Dict[str, float]:
 def warm_up() -> None:
     """Runs one dummy inference at startup so model weights load before the
     first real request, instead of stalling the user's first analysis call."""
+    if DeepFace is None:
+        print("[AURA] DeepFace not installed - face emotion analysis disabled.")
+        return
     dummy = np.zeros((config.FACE_RESIZE_DIM, config.FACE_RESIZE_DIM, 3), dtype=np.uint8)
     try:
         analyze_emotion(dummy)

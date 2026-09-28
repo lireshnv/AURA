@@ -26,20 +26,30 @@ from dataclasses import dataclass, asdict
 from typing import Dict, List, Optional, Tuple
 
 import cv2
-import mediapipe as mp
 import numpy as np
 
 from . import config
 
-_mp_face_mesh = mp.solutions.face_mesh
+# Optional: a lightweight deployment (e.g. a 512 MB free host) installs
+# without MediaPipe; landmark extraction then reports "no landmarks" instead
+# of failing the whole backend at import time.
+try:
+    import mediapipe as mp
+except ImportError:  # pragma: no cover - depends on the install profile
+    mp = None
+
 # static_image_mode=True: each request is an independent frame arriving at a
 # shared server-side detector, so MediaPipe must NOT carry tracking state
 # between calls - that would leak one session's geometry into another's.
-_face_mesh = _mp_face_mesh.FaceMesh(
-    static_image_mode=True,
-    max_num_faces=1,
-    refine_landmarks=True,
-    min_detection_confidence=0.5,
+_face_mesh = (
+    mp.solutions.face_mesh.FaceMesh(
+        static_image_mode=True,
+        max_num_faces=1,
+        refine_landmarks=True,
+        min_detection_confidence=0.5,
+    )
+    if mp is not None
+    else None
 )
 
 # --- Landmark indices (canonical 468-point Face Mesh topology) --------------
@@ -162,6 +172,8 @@ def _midpoint(a, b):
 
 
 def _landmark_points(image_bgr: np.ndarray) -> Optional[List[Tuple[float, float]]]:
+    if _face_mesh is None:
+        return None
     rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
     result = _face_mesh.process(rgb)
     if not result.multi_face_landmarks:

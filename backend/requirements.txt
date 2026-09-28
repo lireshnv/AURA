@@ -11,3 +11,7 @@ alembic==1.19.1
 psycopg2-binary==2.9.12
 google-auth==2.57.0
 websockets==17.1
+# Auth (were missing from the pinned list; installed only by hand before)
+PyJWT==2.13.0
+argon2-cffi==25.1.0
+email-validator==2.3.0

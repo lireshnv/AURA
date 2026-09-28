@@ -9,24 +9,35 @@ from typing import Optional
 
 import cv2
 import numpy as np
-import mediapipe as mp
 
 from . import config
 
-_mp_face_detection = mp.solutions.face_detection
-_detector = _mp_face_detection.FaceDetection(
-    model_selection=0,  # short-range model, optimized for close-up webcam faces
-    min_detection_confidence=config.FACE_DETECTION_CONFIDENCE,
-)
-# Second-pass fallback at a lower bar, tried ONLY when the primary detector
-# finds nothing at all. This raises recall in imperfect lighting/angle
-# frames without lowering the bar for the common case: the blur/brightness/
-# face-size quality gates below are what keep a marginal detection from
-# turning into a bad reading, not the detection confidence itself.
-_detector_lenient = _mp_face_detection.FaceDetection(
-    model_selection=0,
-    min_detection_confidence=max(0.25, config.FACE_DETECTION_CONFIDENCE - 0.25),
-)
+# Optional: a lightweight deployment installs without MediaPipe; frames are
+# then rejected with reason "face_analysis_unavailable" rather than the whole
+# backend failing to start.
+try:
+    import mediapipe as mp
+except ImportError:  # pragma: no cover - depends on the install profile
+    mp = None
+
+FACE_ANALYSIS_AVAILABLE = mp is not None
+
+if mp is not None:
+    _mp_face_detection = mp.solutions.face_detection
+    _detector = _mp_face_detection.FaceDetection(
+        model_selection=0,  # short-range model, optimized for close-up webcam faces
+        min_detection_confidence=config.FACE_DETECTION_CONFIDENCE,
+    )
+    # Second-pass fallback at a lower bar, tried ONLY when the primary
+    # detector finds nothing at all. This raises recall in imperfect
+    # lighting/angle frames without lowering the bar for the common case:
+    # the blur/brightness/face-size quality gates below are what keep a
+    # marginal detection from turning into a bad reading, not the detection
+    # confidence itself.
+    _detector_lenient = _mp_face_detection.FaceDetection(
+        model_selection=0,
+        min_detection_confidence=max(0.25, config.FACE_DETECTION_CONFIDENCE - 0.25),
+    )
 
 
 @dataclass
@@ -159,6 +170,9 @@ def preprocess_frame(image_bgr: np.ndarray) -> PreprocessResult:
     Returns a PreprocessResult with ok=False and a human-readable reason when
     the frame should be rejected, otherwise ok=True with the cropped face image.
     """
+    if not FACE_ANALYSIS_AVAILABLE:
+        return PreprocessResult(ok=False, reason="face_analysis_unavailable")
+
     faces = _detect_faces(image_bgr)
 
     if len(faces) == 0:

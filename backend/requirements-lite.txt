@@ -1,0 +1,22 @@
+# Lightweight profile for small free hosts (e.g. Render free, 512 MB RAM).
+# Leaves out DeepFace/TensorFlow and MediaPipe (camera face-emotion analysis)
+# and the optional audio/NLP models - every one of those degrades to
+# "unavailable" instead of crashing. Everything else (auth, dashboards, cases,
+# calendar, companion chat, speech-to-text via ElevenLabs) works.
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+opencv-python-headless==4.10.0.84
+numpy==1.26.4
+python-multipart==0.0.9
+pydantic==2.9.2
+alembic==1.19.1
+psycopg2-binary==2.9.12
+google-auth==2.57.0
+websockets==17.1
+requests>=2.27.1
+soundfile==0.12.1
+webrtcvad-wheels==2.0.14
+# Auth (were missing from the pinned list; installed only by hand before)
+PyJWT==2.13.0
+argon2-cffi==25.1.0
+email-validator==2.3.0
