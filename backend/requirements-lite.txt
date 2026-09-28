@@ -4,8 +4,9 @@
 # the emotion, instead of DeepFace/TensorFlow, which alone needs >1 GB.
 # Install:  pip install -r requirements-lite.txt
 #           pip install --no-deps -r requirements-face.txt
-# Left out: the optional voice-tone / text-emotion transformer models, which
-# report "unavailable" instead of failing.
+# Left out: the optional voice-tone / text-emotion transformer models and
+# librosa (acoustic voice features: its numba JIT alone pushes a 4 s clip to
+# ~580 MB). Each reports "unavailable" instead of failing.
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
 opencv-python-headless==4.10.0.84
@@ -33,3 +34,5 @@ attrs==26.1.0
 flatbuffers==25.12.19
 matplotlib==3.11.2
 protobuf==4.25.9
+# AI companion chat (Groq API client; small, no model weights)
+groq==1.7.0
