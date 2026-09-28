@@ -662,7 +662,7 @@ function CaseTypeSelector({ auraId, onChanged }: { auraId: string; onChanged: ()
           value={value}
           onChange={(e) => save({ type: e.target.value })}
           disabled={!options || saving}
-          className="flex-1 bg-surface-container-lowest border border-outline-variant rounded-lg px-2 py-1 text-label-md text-on-surface disabled:opacity-50"
+          className="flex-1 min-w-0 bg-surface-container-lowest border border-outline-variant rounded-lg px-2 py-1 text-label-md text-on-surface disabled:opacity-50"
         >
           <option value="">Not classified yet</option>
           {(options ?? []).map((o) => (
@@ -679,14 +679,14 @@ function CaseTypeSelector({ auraId, onChanged }: { auraId: string; onChanged: ()
           onChange={(e) => setDistrict(e.target.value)}
           onBlur={() => save({})}
           placeholder="District"
-          className="flex-1 bg-surface-container-lowest border border-outline-variant rounded-lg px-2 py-1 text-label-md text-on-surface"
+          className="flex-1 min-w-0 bg-surface-container-lowest border border-outline-variant rounded-lg px-2 py-1 text-label-md text-on-surface"
         />
         <input
           value={state}
           onChange={(e) => setState(e.target.value)}
           onBlur={() => save({})}
           placeholder="State"
-          className="flex-1 bg-surface-container-lowest border border-outline-variant rounded-lg px-2 py-1 text-label-md text-on-surface"
+          className="flex-1 min-w-0 bg-surface-container-lowest border border-outline-variant rounded-lg px-2 py-1 text-label-md text-on-surface"
         />
       </div>
     </div>
@@ -767,7 +767,7 @@ function ActionRequiredTab({
               const d = decisions[key(p.pathway)]
               return (
                 <div key={p.pathway} className="rounded-lg border border-outline-variant bg-surface-container px-3 py-2.5">
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
                     <div className="flex-1 min-w-0">
                       <div className="text-label-md font-medium text-on-surface">
                         {p.pathway}
@@ -782,7 +782,7 @@ function ActionRequiredTab({
                         {d.status === "approved" ? "Accepted" : d.status === "escalated" ? "Escalated" : "Dismissed"}
                       </span>
                     ) : (
-                      <div className="flex gap-2 shrink-0">
+                      <div className="flex flex-wrap gap-2 shrink-0">
                         <button onClick={() => act(p.pathway, "approved")} className="px-3 py-1 rounded-full bg-primary text-on-primary text-label-sm font-semibold">Accept</button>
                         <button onClick={() => setModifyOpen(p.pathway)} className="px-3 py-1 rounded-full border border-outline-variant text-on-surface text-label-sm font-medium">Modify</button>
                         <button onClick={() => act(p.pathway, "rejected")} className="px-3 py-1 rounded-full border border-outline-variant text-on-surface-variant text-label-sm font-medium">Dismiss</button>
@@ -1103,7 +1103,7 @@ function ReportsTab({
         <Card><p className="text-body-md text-on-surface-variant">Select a case above to generate its report.</p></Card>
       ) : (
         <Card>
-          <div className="flex items-center justify-between gap-2 mb-1">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
             <h2 className="text-headline-lg text-on-surface">Case report — {selected}</h2>
             <button
               onClick={exportCaseReport}

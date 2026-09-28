@@ -100,13 +100,13 @@ function SessionCard({ session }: { session: HistorySession }) {
   const filledBars = score >= 66 ? 3 : score >= 33 ? 2 : score > 0 ? 1 : 0
 
   return (
-    <div className="relative pl-24 mb-stack-sm group">
+    <div className="relative pl-12 sm:pl-24 mb-stack-sm group">
       <div
-        className={`absolute left-6 top-6 w-5 h-5 rounded-full ${level.dot} ring-4 ring-surface shadow-sm z-10 transition-transform group-hover:scale-125 duration-300`}
+        className={`absolute left-[6px] sm:left-6 top-6 w-5 h-5 rounded-full ${level.dot} ring-4 ring-surface shadow-sm z-10 transition-transform group-hover:scale-125 duration-300`}
       />
       <div className="bg-surface-container-lowest rounded-[24px] p-gutter card-shadow hover:shadow-[0_24px_48px_-12px_rgba(124,58,237,0.15)] transition-shadow duration-300 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border border-surface-container-low">
-        <div className="flex items-center gap-gutter min-w-0">
-          <div className={`w-16 h-16 rounded-full ${level.iconBg} ${level.iconColor} flex items-center justify-center shrink-0`}>
+        <div className="flex items-center gap-gutter min-w-0 w-full sm:w-auto">
+          <div className={`w-12 h-12 sm:w-16 sm:h-16 rounded-full ${level.iconBg} ${level.iconColor} flex items-center justify-center shrink-0`}>
             <span className="material-symbols-outlined text-3xl">{level.icon}</span>
           </div>
           <div className="min-w-0">
@@ -254,7 +254,7 @@ export default function HistoryPage({
           </p>
         </div>
       ) : (
-        <div className="relative before:content-[''] before:absolute before:left-8 before:top-4 before:bottom-4 before:w-0.5 before:bg-surface-variant">
+        <div className="relative before:content-[''] before:absolute before:left-4 sm:before:left-8 before:top-4 before:bottom-4 before:w-0.5 before:bg-surface-variant">
           {data.sessions.map((s) => (
             <SessionCard key={s.id} session={s} />
           ))}

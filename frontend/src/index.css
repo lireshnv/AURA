@@ -286,6 +286,22 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Phones: one wide element must never widen the whole page (mobile Safari
+   zooms out to fit it and shows the body colour down the right edge).
+   `clip` rather than `hidden` so it creates no scroll container and the
+   sticky header keeps working. */
+html,
+body {
+  overflow-x: clip;
+}
+
+/* Dark shell: paint the canvas dark too, so overscroll/bounce areas and
+   the safe-area insets match instead of flashing the light body colour. */
+html:has(.aura-cinematic),
+html:has(.aura-cinematic) body {
+  background-color: var(--color-void);
+}
+
 /* Material Symbols Outlined — variable icon font used across every page. */
 .material-symbols-outlined {
   font-family: "Material Symbols Outlined";

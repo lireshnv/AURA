@@ -273,7 +273,7 @@ export default function AICompanion() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 sm:gap-4">
         <div>
           <h1 className="text-headline-md text-on-surface">AI Companion</h1>
           <p className="text-body-md text-on-surface-variant mt-0.5">
@@ -281,12 +281,12 @@ export default function AICompanion() {
           </p>
         </div>
         {mode === "chat" && (
-          <div className="flex gap-2 shrink-0">
+          <div className="flex flex-wrap gap-2 shrink-0">
             <select
               value={language}
               onChange={(e) => changeLanguage(e.target.value)}
               title="Reply language"
-              className="px-2 py-1.5 rounded-lg border border-outline-variant text-xs text-on-surface-variant bg-surface-container-lowest hover:bg-surface-container-low"
+              className="max-w-[11rem] px-2 py-1.5 rounded-lg border border-outline-variant text-xs text-on-surface-variant bg-surface-container-lowest hover:bg-surface-container-low"
             >
               {LANGUAGE_OPTIONS.map((opt) => (
                 <option key={opt.code} value={opt.code}>
