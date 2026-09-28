@@ -20,8 +20,12 @@
 - **Lite profile:** Render's free 512 MB can't fit TensorFlow/DeepFace, so
   camera face-emotion analysis uses MediaPipe (face detection) plus a small
   FER+ ONNX model run by OpenCV (`backend/models/emotion-ferplus-8.onnx`).
-  Peak memory measured ~330 MB. MediaPipe is installed with `--no-deps`
+  Peak memory measured ~370 MB with the companion chat (Groq) and web search
+  installed. MediaPipe is installed with `--no-deps`
   (`requirements-face.txt`) to avoid pulling JAX/GUI OpenCV/PortAudio.
+  Left out because they don't fit: acoustic voice features (librosa, measured
+  ~580 MB) and the transformer voice/text emotion models. They show as
+  unavailable; transcription, voice replies, face analysis and chat all work.
   `backend/Dockerfile` + `requirements.txt` is the DeepFace build for a
   bigger host; the app picks whichever backend is installed.
 - **Frontend** is built with `VITE_API_BASE` pointing at the backend, which is
@@ -61,7 +65,7 @@ and deploy**. Settings in use: `DATABASE_URL` (must start with
   Render's disk and reset on every redeploy. Accounts, cases, calendar events,
   interventions, the wellbeing "twin" (check-ins, baseline, signals) and
   session history are in Supabase and persist.
-- Render's free instance has 512 MB; face analysis peaks around 360 MB, so
+- Render's free instance has 512 MB; the app peaks around 370 MB, so
   many people streaming camera frames at once could exceed it.
 - Demo only. Real survivor data needs a paid, backed-up, encrypted setup and a
   privacy review first.
