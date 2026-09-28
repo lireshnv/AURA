@@ -73,6 +73,9 @@ class Settings:
         ).split(",")
         if o.strip()
     ]
+    # Optional regex for origins that can't be listed up front, e.g. Netlify's
+    # per-deploy URLs (https://<deploy-id>--<site>.netlify.app). Unset = off.
+    cors_origin_regex: str | None = os.environ.get("AURA_CORS_ORIGIN_REGEX") or None
 
     # --- Rate limiting ---
     rate_limit_enabled: bool = os.environ.get("AURA_RATE_LIMIT", "1") != "0"
