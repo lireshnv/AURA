@@ -57,8 +57,11 @@ and deploy**. Settings in use: `DATABASE_URL` (must start with
 
 - **Sign in with email + password.** Google and one-time-code sign-in use
   cookies that browsers won't send between netlify.app and onrender.com.
-- **Session history, SOS log, audit log, the wellbeing "twin" and uploaded
-  document files** live on Render's disk and reset on every redeploy.
-  Accounts, cases, calendar events and interventions are in Supabase and persist.
+- **SOS log, audit log, AI call history and uploaded document files** live on
+  Render's disk and reset on every redeploy. Accounts, cases, calendar events,
+  interventions, the wellbeing "twin" (check-ins, baseline, signals) and
+  session history are in Supabase and persist.
+- Render's free instance has 512 MB; face analysis peaks around 360 MB, so
+  many people streaming camera frames at once could exceed it.
 - Demo only. Real survivor data needs a paid, backed-up, encrypted setup and a
   privacy review first.
