@@ -1,0 +1,15 @@
+# Netlify: set "Base directory" to `frontend` in the site settings (or deploy
+# from this folder) and add VITE_API_BASE as an environment variable - it's
+# baked in at build time, so redeploy after changing it.
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Single-page app: every route serves index.html so refreshing works.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

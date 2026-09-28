@@ -254,8 +254,19 @@ def _timestamp() -> str:
 
 
 @app.get("/health")
-async def health():
-    return {"status": "ok", "service": "AURA Emotion Analysis API"}
+def health():
+    # Runs a real query so an uptime pinger hitting this also keeps a
+    # free-tier database (e.g. Supabase, which pauses when idle) awake.
+    from sqlalchemy import text
+
+    try:
+        with database.engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        db_status = "ok"
+    except Exception:  # noqa: BLE001
+        logger.exception("Health check: database unreachable")
+        db_status = "unreachable"
+    return {"status": "ok", "service": "AURA Emotion Analysis API", "database": db_status}
 
 
 @app.get("/api/version")
