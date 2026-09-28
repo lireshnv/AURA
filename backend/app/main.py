@@ -522,7 +522,15 @@ async def session_report(payload: SessionReportRequest):
 async def voice_capabilities():
     """What the voice stack can actually do here, so the UI can show honest
     'unavailable' states instead of empty panels."""
-    return voice_service.capability_report()
+    from . import emotion_engine
+    from .face_preprocessing import FACE_ANALYSIS_AVAILABLE
+
+    return {
+        **voice_service.capability_report(),
+        # Face analysis needs both a detector (MediaPipe) and an emotion model.
+        "face_emotion": FACE_ANALYSIS_AVAILABLE and emotion_engine.EMOTION_ANALYSIS_AVAILABLE,
+        "face_emotion_backend": emotion_engine.BACKEND,
+    }
 
 
 @app.post("/api/voice/emotion")

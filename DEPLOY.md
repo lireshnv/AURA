@@ -14,13 +14,16 @@
 ## How it fits together
 
 - **Backend** deploys automatically on every push to `main` on GitHub. Render
-  runs `pip install -r backend/requirements-lite.txt`, then
-  `uvicorn app.main:app`. Configuration lives in Render → aura-backend →
+  runs `pip install -r requirements-lite.txt && pip install --no-deps -r
+  requirements-face.txt`, then `uvicorn app.main:app`. Configuration lives in Render → aura-backend →
   **Environment** (never in the repo). `render.yaml` documents the same setup.
-- **Lite profile:** Render's free 512 MB can't fit TensorFlow/DeepFace or
-  MediaPipe, so `requirements-lite.txt` leaves them out. Camera face-emotion
-  analysis reports "unavailable"; everything else works. `backend/Dockerfile`
-  + `requirements.txt` is the full-feature build for a bigger host.
+- **Lite profile:** Render's free 512 MB can't fit TensorFlow/DeepFace, so
+  camera face-emotion analysis uses MediaPipe (face detection) plus a small
+  FER+ ONNX model run by OpenCV (`backend/models/emotion-ferplus-8.onnx`).
+  Peak memory measured ~330 MB. MediaPipe is installed with `--no-deps`
+  (`requirements-face.txt`) to avoid pulling JAX/GUI OpenCV/PortAudio.
+  `backend/Dockerfile` + `requirements.txt` is the DeepFace build for a
+  bigger host; the app picks whichever backend is installed.
 - **Frontend** is built with `VITE_API_BASE` pointing at the backend, which is
   baked in at build time.
 - **Keep-awake:** `frontend/netlify/functions/keepalive.mjs` calls the
@@ -57,6 +60,5 @@ and deploy**. Settings in use: `DATABASE_URL` (must start with
 - **Session history, SOS log, audit log, the wellbeing "twin" and uploaded
   document files** live on Render's disk and reset on every redeploy.
   Accounts, cases, calendar events and interventions are in Supabase and persist.
-- Camera face-emotion analysis is off (lite profile, see above).
 - Demo only. Real survivor data needs a paid, backed-up, encrypted setup and a
   privacy review first.

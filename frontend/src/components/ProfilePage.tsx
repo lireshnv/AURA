@@ -146,7 +146,11 @@ export default function ProfilePage({
         </h2>
         {capabilities ? (
           <>
-            <Row label="Face analysis (MediaPipe + OpenCV + DeepFace)" value="Available" ok />
+            <Row
+              label={`Face analysis (MediaPipe + ${capabilities.face_emotion_backend === "deepface" ? "DeepFace" : "FER+ ONNX"})`}
+              value={capabilities.face_emotion ? "Available" : "Unavailable"}
+              ok={!!capabilities.face_emotion}
+            />
             <Row
               label="Audio decoding"
               value={capabilities.audio_decode ? "Available" : "Unavailable"}

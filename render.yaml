@@ -8,7 +8,7 @@ services:
     plan: free
     region: singapore
     rootDir: backend
-    buildCommand: pip install -r requirements-lite.txt
+    buildCommand: pip install -r requirements-lite.txt && pip install --no-deps -r requirements-face.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:

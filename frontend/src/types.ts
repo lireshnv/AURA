@@ -167,6 +167,8 @@ export interface VoiceCapabilities {
   voice_emotion: boolean
   text_emotion: boolean
   stt_model: string
+  face_emotion?: boolean
+  face_emotion_backend?: "deepface" | "ferplus" | null
 }
 
 export interface AudioQualityInfo {
