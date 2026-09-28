@@ -73,3 +73,34 @@ def authorized_victim_ids(user: User, db: Session) -> set[str]:
     if user.role == "victim":
         return {user.aura_id}
     return set()
+
+
+def resolve_subject_aura_id(user: User, requested: str | None, db: Session) -> str:
+    """Whose well-being data a request may read.
+
+    A victim always gets their own aura_id - any `requested` value is ignored,
+    so a victim can never read another person's data by changing a query
+    parameter. Every other role must name the victim explicitly and be
+    authorized for them (assigned counsellor, linked guardian, or admin).
+    """
+    from fastapi import HTTPException
+
+    if user.role == "victim":
+        if not user.aura_id:
+            raise HTTPException(status_code=403, detail="This account has no AURA ID.")
+        return user.aura_id
+    if not requested:
+        raise HTTPException(status_code=400, detail="aura_id is required for this role.")
+    if not can_access_victim(user, requested, db):
+        raise HTTPException(status_code=403, detail="Not authorized for this case.")
+    return requested
+
+
+def require_own_aura_id(user: User) -> str:
+    """Writes to someone's well-being record (check-ins, consent, baseline,
+    deletion) are only ever made by that person themselves."""
+    from fastapi import HTTPException
+
+    if user.role != "victim" or not user.aura_id:
+        raise HTTPException(status_code=403, detail="Only the person themselves can change this data.")
+    return user.aura_id

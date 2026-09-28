@@ -60,14 +60,14 @@ def _parse(ts: Optional[str]) -> Optional[datetime]:
 # --- Ingestion -------------------------------------------------------------
 
 
-def ingest_session_signals(payload: Dict) -> Dict:
+def ingest_session_signals(payload: Dict, *, aura_id: str) -> Dict:
     """Receives one completed analysis result from the Emotion Dashboard.
 
     Stores only derived signals, and only with 'emotion_signals' consent.
     Without consent this is a silent no-op that reports why - the analysis
     itself still ran and still displayed; it simply is not retained.
     """
-    if not twin_store.has_consent("emotion_signals"):
+    if not twin_store.has_consent("emotion_signals", aura_id=aura_id):
         return {
             "stored": False,
             "reason": "Consent for storing emotion signals has not been granted.",
@@ -85,7 +85,7 @@ def ingest_session_signals(payload: Dict) -> Dict:
         "reliability": payload.get("reliability"),
         "session_id": payload.get("session_id"),
     }
-    entry_id = twin_store.save_signal_observation(record)
+    entry_id = twin_store.save_signal_observation(record, aura_id=aura_id)
     return {"stored": entry_id is not None, "id": entry_id}
 
 
@@ -101,15 +101,15 @@ def _window_slice(rows: List[Dict], days: int) -> List[Dict]:
     return [r for r in rows if (_parse(r.get("created_at")) or _now()) >= cutoff]
 
 
-def build_trends() -> Dict:
+def build_trends(*, aura_id: str) -> Dict:
     """Emotion / sentiment / engagement / check-in trends over real windows.
 
     Every window reports its own point count. A window with too few points is
     marked available=False and carries no numbers - a chart must be able to
     show "not enough information yet" rather than a misleading flat line.
     """
-    checkins = twin_store.list_checkins()
-    signals = twin_store.list_signal_observations()
+    checkins = twin_store.list_checkins(aura_id=aura_id)
+    signals = twin_store.list_signal_observations(aura_id=aura_id)
 
     trends: Dict[str, Dict] = {}
 
@@ -164,15 +164,15 @@ def build_trends() -> Dict:
     return trends
 
 
-def build_series() -> Dict[str, List[Dict]]:
+def build_series(*, aura_id: str) -> Dict[str, List[Dict]]:
     """Daily points for the trend graphs, over the last 30 days.
 
     Only days that actually have data produce a point. Missing days are simply
     absent from the series - they are NOT interpolated or zero-filled, because
     a zero would render as a real low reading.
     """
-    checkins = twin_store.list_checkins(days=30)
-    signals = twin_store.list_signal_observations(days=30)
+    checkins = twin_store.list_checkins(days=30, aura_id=aura_id)
+    signals = twin_store.list_signal_observations(days=30, aura_id=aura_id)
 
     by_day_checkin: Dict[str, List[float]] = {}
     for c in checkins:
@@ -290,20 +290,20 @@ def detect_recent_changes(twin, signals: List[Dict]) -> List[Dict]:
 # --- Assembly --------------------------------------------------------------
 
 
-def get_twin_view() -> Dict:
+def get_twin_view(*, aura_id: str) -> Dict:
     """The complete My Well-being view, built from real data only."""
     twin_store.init_db()
-    consent = twin_store.get_consent()
+    consent = twin_store.get_consent(aura_id=aura_id)
 
-    baseline_entry = twin_store.get_latest_baseline_answers()
+    baseline_entry = twin_store.get_latest_baseline_answers(aura_id=aura_id)
     onboarding = baseline_entry["answers"] if baseline_entry else None
-    checkins = twin_store.list_checkins()
-    signals = twin_store.list_signal_observations()
+    checkins = twin_store.list_checkins(aura_id=aura_id)
+    signals = twin_store.list_signal_observations(aura_id=aura_id)
 
     has_any_data = bool(onboarding) or bool(checkins) or bool(signals)
 
     twin = build_twin(
-        aura_id="local-user",
+        aura_id=aura_id,
         checkins=checkins,
         onboarding=onboarding,
         companion_events=None,
@@ -436,7 +436,7 @@ def _is_today(ts: Optional[str], today: datetime) -> bool:
     return parsed is not None and parsed.date() == today.date()
 
 
-def get_care_summary() -> Dict:
+def get_care_summary(*, aura_id: str) -> Dict:
     """Today's Companion daily-care checklist plus real pet/plant growth.
 
     Check-ins are read from the existing checkins table rather than
@@ -445,8 +445,8 @@ def get_care_summary() -> Dict:
     twin_store.init_db()
     today = _now()
 
-    care_actions = twin_store.list_care_actions()
-    checkins = twin_store.list_checkins()
+    care_actions = twin_store.list_care_actions(aura_id=aura_id)
+    checkins = twin_store.list_checkins(aura_id=aura_id)
 
     feed_actions = [a for a in care_actions if a["kind"] == "feed"]
     water_actions = [a for a in care_actions if a["kind"] == "water"]
@@ -472,7 +472,7 @@ def get_care_summary() -> Dict:
 
     return {
         "success": True,
-        "consent": twin_store.has_consent("companion_care"),
+        "consent": twin_store.has_consent("companion_care", aura_id=aura_id),
         "today": {
             "feed": any(_is_today(a["created_at"], today) for a in feed_actions),
             "water": any(_is_today(a["created_at"], today) for a in water_actions),

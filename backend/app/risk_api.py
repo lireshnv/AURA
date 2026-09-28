@@ -8,7 +8,7 @@ from . import audit_store, risk_service
 from .database import get_db
 from .database.models import User
 from .security.auth import get_current_user, require_role
-from .security.authz import can_access_victim
+from .security.authz import can_access_victim, resolve_subject_aura_id
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/api/risk", tags=["risk"])
@@ -25,15 +25,27 @@ class ReviewRequest(BaseModel):
 
 
 @router.get("/assessment")
-async def assessment():
-    """Current Risk & Trend for the consented user, from real data only."""
-    return risk_service.assess_current_risk()
+async def assessment(
+    aura_id: Optional[str] = None,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Current Risk & Trend, from real data only. A victim always gets their
+    own; other roles pass `aura_id` for a case they're authorized on."""
+    subject = resolve_subject_aura_id(user, aura_id, db)
+    return risk_service.assess_current_risk(aura_id=subject)
 
 
 @router.get("/history")
-async def history(days: int = 7):
+async def history(
+    days: int = 7,
+    aura_id: Optional[str] = None,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Distress signal over recent days. Days without data produce no point."""
-    return {"success": True, **risk_service.distress_history(days)}
+    subject = resolve_subject_aura_id(user, aura_id, db)
+    return {"success": True, **risk_service.distress_history(days, aura_id=subject)}
 
 
 @router.post("/review")

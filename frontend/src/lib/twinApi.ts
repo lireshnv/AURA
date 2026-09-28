@@ -1,5 +1,6 @@
 /** Client for the Personal Well-being Digital Twin service. */
 import { API_BASE_URL } from "./api"
+import { authHeader } from "./authToken"
 
 const TWIN = `${API_BASE_URL}/api/twin`
 
@@ -129,7 +130,11 @@ export interface CareSummary {
 
 async function getJson<T>(path: string): Promise<T | null> {
   try {
-    const res = await fetch(`${TWIN}${path}`, { signal: AbortSignal.timeout(20000) })
+    const res = await fetch(`${TWIN}${path}`, {
+      headers: { ...authHeader() },
+      credentials: "include",
+      signal: AbortSignal.timeout(20000),
+    })
     if (!res.ok) return null
     return (await res.json()) as T
   } catch {
@@ -146,7 +151,8 @@ export const fetchBaselineQuestions = () =>
 export async function setConsent(scope: ConsentScope, granted: boolean) {
   const res = await fetch(`${TWIN}/consent`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeader() },
+    credentials: "include",
     body: JSON.stringify({ scope, granted }),
   })
   return res.json()
@@ -155,7 +161,8 @@ export async function setConsent(scope: ConsentScope, granted: boolean) {
 export async function submitBaseline(answers: Record<string, number | string>) {
   const res = await fetch(`${TWIN}/baseline`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeader() },
+    credentials: "include",
     body: JSON.stringify(answers),
   })
   return res.json()
@@ -166,7 +173,8 @@ export async function submitCheckin(
 ) {
   const res = await fetch(`${TWIN}/checkin`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeader() },
+    credentials: "include",
     body: JSON.stringify(values),
   })
   return res.json()
@@ -180,7 +188,8 @@ export async function ingestSignals(payload: Record<string, unknown>) {
   try {
     const res = await fetch(`${TWIN}/ingest`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeader() },
+    credentials: "include",
       body: JSON.stringify(payload),
     })
     return await res.json()
@@ -211,7 +220,8 @@ export async function submitCareAction(
   try {
     const res = await fetch(`${TWIN}/care/action`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeader() },
+    credentials: "include",
       body: JSON.stringify({ kind, activity_type: activityType }),
     })
     return await res.json()
@@ -221,11 +231,15 @@ export async function submitCareAction(
 }
 
 export async function deleteAllTwinData() {
-  const res = await fetch(`${TWIN}/privacy/all`, { method: "DELETE" })
+  const res = await fetch(`${TWIN}/privacy/all`, {
+    method: "DELETE",
+    headers: { ...authHeader() },
+    credentials: "include",
+  })
   return res.json()
 }
 
 export async function exportTwinData() {
-  const res = await fetch(`${TWIN}/privacy/export`)
+  const res = await fetch(`${TWIN}/privacy/export`, { headers: { ...authHeader() }, credentials: "include" })
   return res.json()
 }

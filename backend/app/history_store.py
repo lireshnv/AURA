@@ -1,109 +1,79 @@
 """Persistence for completed analysis sessions.
 
-STORAGE CHOICE
---------------
-The spec names PostgreSQL. This uses SQLite instead, deliberately, for the
-prototype stage: it needs no server, no credentials and no setup, which keeps
-`uvicorn app.main:app` a single command for a student/demo deployment.
-
-The swap is intentionally cheap. All SQL here is plain and portable, and the
-only Postgres-specific work would be swapping the `sqlite3` connection for a
-DB-API/SQLAlchemy engine and changing the placeholder style. `DATABASE_URL` is
-already read from the environment so the seam exists.
-
 WHAT IS STORED
 --------------
 Only derived, structured signals: scores, timestamps, a short transcript
 excerpt and the distress summary. Raw video, raw audio and face images are
-never written to disk - consistent with the privacy commitment shown in the UI.
+never written anywhere - consistent with the privacy commitment shown in the UI.
+
+SCOPE: every session belongs to one person (aura_id). API routes always pass
+a concrete aura_id so one person's sessions are never returned for another's
+request.
+
+STORAGE: the main application database (same SQLAlchemy engine as the ORM -
+Postgres in production), in table `history_sessions`, so history survives
+redeploys of an ephemeral-disk host. SQL is portable to SQLite.
 """
 import json
 import logging
-import os
-import sqlite3
 import threading
 import uuid
-from contextlib import contextmanager
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Dict, List, Optional
 
-logger = logging.getLogger("aura.history")
+from sqlalchemy import text
 
-# Kept outside the OneDrive-synced project tree: OneDrive's file locking has
-# repeatedly broken writes to this project directory, and a locked DB file
-# would fail a session save.
-DEFAULT_DB_PATH = Path(os.environ.get("AURA_DB_PATH", Path.home() / ".aura" / "aura_history.db"))
+from .database import engine
+
+logger = logging.getLogger("aura.history")
 
 _lock = threading.Lock()
 _initialized = False
 
-
-def _db_path() -> Path:
-    DEFAULT_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    return DEFAULT_DB_PATH
-
-
-@contextmanager
-def _connect():
-    conn = sqlite3.connect(_db_path(), timeout=10)
-    conn.row_factory = sqlite3.Row
-    try:
-        yield conn
-        conn.commit()
-    finally:
-        conn.close()
+_COLUMNS = (
+    "id, aura_id, created_at, duration_seconds, observed_emotion, emotion_confidence, "
+    "distress_score, distress_level, sentiment_dominant, agreement, modalities, "
+    "valid_observations, emotion_scores, sentiment_scores, factors, transcript_excerpt, notes"
+)
 
 
 def init_db() -> None:
-    """Creates the schema if absent. Safe to call repeatedly."""
+    """Creates the table if absent. Safe to call repeatedly."""
     global _initialized
     with _lock:
         if _initialized:
             return
         try:
-            with _connect() as conn:
-                conn.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS sessions (
-                        id                TEXT PRIMARY KEY,
-                        aura_id           TEXT,
-                        created_at        TEXT NOT NULL,
-                        duration_seconds  REAL NOT NULL DEFAULT 0,
-                        observed_emotion  TEXT,
+            with engine.begin() as conn:
+                conn.execute(text(
+                    """CREATE TABLE IF NOT EXISTS history_sessions (
+                        id                 TEXT PRIMARY KEY,
+                        aura_id            TEXT,
+                        created_at         TEXT NOT NULL,
+                        duration_seconds   REAL NOT NULL DEFAULT 0,
+                        observed_emotion   TEXT,
                         emotion_confidence REAL,
-                        distress_score    REAL,
-                        distress_level    TEXT,
+                        distress_score     REAL,
+                        distress_level     TEXT,
                         sentiment_dominant TEXT,
-                        agreement         REAL,
-                        modalities        TEXT,
+                        agreement          REAL,
+                        modalities         TEXT,
                         valid_observations INTEGER DEFAULT 0,
-                        emotion_scores    TEXT,
-                        sentiment_scores  TEXT,
-                        factors           TEXT,
+                        emotion_scores     TEXT,
+                        sentiment_scores   TEXT,
+                        factors            TEXT,
                         transcript_excerpt TEXT,
-                        notes             TEXT
-                    )
-                    """
-                )
-                conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_sessions_created "
-                    "ON sessions (created_at DESC)"
-                )
-                # Migration for DBs created before aura_id scoping existed -
-                # CREATE TABLE IF NOT EXISTS above is a no-op on an existing
-                # table, so an already-initialised DB needs this separately.
-                try:
-                    conn.execute("ALTER TABLE sessions ADD COLUMN aura_id TEXT")
-                except sqlite3.OperationalError:
-                    pass  # column already exists
-                conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_sessions_aura_id ON sessions (aura_id)"
-                )
+                        notes              TEXT
+                    )"""
+                ))
+                conn.execute(text(
+                    "CREATE INDEX IF NOT EXISTS idx_history_sessions_owner "
+                    "ON history_sessions (aura_id, created_at)"
+                ))
             _initialized = True
-            logger.info("History database ready at %s", _db_path())
+            logger.info("History table ready (main database)")
         except Exception:  # noqa: BLE001 - history must never block analysis
-            logger.exception("Failed to initialise history database")
+            logger.exception("Failed to initialise history table")
 
 
 def save_session(record: Dict) -> Optional[str]:
@@ -114,51 +84,44 @@ def save_session(record: Dict) -> Optional[str]:
     """
     init_db()
     session_id = record.get("id") or str(uuid.uuid4())
+    params = {
+        "id": session_id,
+        "aura_id": record.get("aura_id"),
+        "created_at": record.get("created_at") or datetime.now(timezone.utc).isoformat(),
+        "duration_seconds": float(record.get("duration_seconds") or 0),
+        "observed_emotion": record.get("observed_emotion"),
+        "emotion_confidence": record.get("emotion_confidence"),
+        "distress_score": record.get("distress_score"),
+        "distress_level": record.get("distress_level"),
+        "sentiment_dominant": record.get("sentiment_dominant"),
+        "agreement": record.get("agreement"),
+        "modalities": json.dumps(record.get("modalities") or []),
+        "valid_observations": int(record.get("valid_observations") or 0),
+        "emotion_scores": json.dumps(record.get("emotion_scores") or {}),
+        "sentiment_scores": json.dumps(record.get("sentiment_scores") or {}),
+        "factors": json.dumps(record.get("factors") or []),
+        "transcript_excerpt": (record.get("transcript_excerpt") or "")[:1000],
+        "notes": json.dumps(record.get("notes") or []),
+    }
+    placeholders = ", ".join(":" + c.strip() for c in _COLUMNS.split(","))
     try:
-        with _connect() as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO sessions (
-                    id, aura_id, created_at, duration_seconds, observed_emotion,
-                    emotion_confidence, distress_score, distress_level,
-                    sentiment_dominant, agreement, modalities,
-                    valid_observations, emotion_scores, sentiment_scores,
-                    factors, transcript_excerpt, notes
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """,
-                (
-                    session_id,
-                    record.get("aura_id"),
-                    record.get("created_at") or datetime.now(timezone.utc).isoformat(),
-                    float(record.get("duration_seconds") or 0),
-                    record.get("observed_emotion"),
-                    record.get("emotion_confidence"),
-                    record.get("distress_score"),
-                    record.get("distress_level"),
-                    record.get("sentiment_dominant"),
-                    record.get("agreement"),
-                    json.dumps(record.get("modalities") or []),
-                    int(record.get("valid_observations") or 0),
-                    json.dumps(record.get("emotion_scores") or {}),
-                    json.dumps(record.get("sentiment_scores") or {}),
-                    json.dumps(record.get("factors") or []),
-                    (record.get("transcript_excerpt") or "")[:1000],
-                    json.dumps(record.get("notes") or []),
-                ),
-            )
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM history_sessions WHERE id = :id"), {"id": session_id})
+            conn.execute(text(f"INSERT INTO history_sessions ({_COLUMNS}) VALUES ({placeholders})"), params)
         return session_id
     except Exception:  # noqa: BLE001
         logger.exception("Failed to save session to history")
         return None
 
 
-def _row_to_dict(row: sqlite3.Row) -> Dict:
-    def _load(value, fallback):
-        try:
-            return json.loads(value) if value else fallback
-        except (ValueError, TypeError):
-            return fallback
+def _load(value, fallback):
+    try:
+        return json.loads(value) if value else fallback
+    except (ValueError, TypeError):
+        return fallback
 
+
+def _row_to_dict(row) -> Dict:
     return {
         "id": row["id"],
         "aura_id": row["aura_id"],
@@ -180,23 +143,30 @@ def _row_to_dict(row: sqlite3.Row) -> Dict:
     }
 
 
-def list_sessions(limit: int = 50, aura_id: Optional[str] = None) -> List[Dict]:
-    """`aura_id=None` lists every session (only ever used internally, e.g. by
-    an already-authorized caller that filters afterwards) - every API route
-    below always passes a concrete aura_id so one person's sessions are
-    never returned for another's request."""
+def _query(sql: str, **params) -> list:
     init_db()
+    with engine.connect() as conn:
+        return conn.execute(text(sql), params).mappings().all()
+
+
+def _write(sql: str, **params) -> int:
+    init_db()
+    with engine.begin() as conn:
+        return conn.execute(text(sql), params).rowcount
+
+
+def list_sessions(limit: int = 50, aura_id: Optional[str] = None) -> List[Dict]:
+    """`aura_id=None` lists every session (internal use only) - every API
+    route passes a concrete aura_id so one person's sessions are never
+    returned for another's request."""
     try:
-        with _connect() as conn:
-            if aura_id is not None:
-                rows = conn.execute(
-                    "SELECT * FROM sessions WHERE aura_id = ? ORDER BY created_at DESC LIMIT ?",
-                    (aura_id, limit),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    "SELECT * FROM sessions ORDER BY created_at DESC LIMIT ?", (limit,)
-                ).fetchall()
+        if aura_id is not None:
+            rows = _query(
+                "SELECT * FROM history_sessions WHERE aura_id = :a ORDER BY created_at DESC LIMIT :n",
+                a=aura_id, n=limit,
+            )
+        else:
+            rows = _query("SELECT * FROM history_sessions ORDER BY created_at DESC LIMIT :n", n=limit)
         return [_row_to_dict(r) for r in rows]
     except Exception:  # noqa: BLE001
         logger.exception("Failed to list sessions")
@@ -204,32 +174,24 @@ def list_sessions(limit: int = 50, aura_id: Optional[str] = None) -> List[Dict]:
 
 
 def get_session(session_id: str, aura_id: Optional[str] = None) -> Optional[Dict]:
-    init_db()
     try:
-        with _connect() as conn:
-            if aura_id is not None:
-                row = conn.execute(
-                    "SELECT * FROM sessions WHERE id = ? AND aura_id = ?", (session_id, aura_id)
-                ).fetchone()
-            else:
-                row = conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
-        return _row_to_dict(row) if row else None
+        if aura_id is not None:
+            rows = _query("SELECT * FROM history_sessions WHERE id = :i AND aura_id = :a", i=session_id, a=aura_id)
+        else:
+            rows = _query("SELECT * FROM history_sessions WHERE id = :i", i=session_id)
+        return _row_to_dict(rows[0]) if rows else None
     except Exception:  # noqa: BLE001
         logger.exception("Failed to fetch session")
         return None
 
 
 def delete_session(session_id: str, aura_id: Optional[str] = None) -> bool:
-    init_db()
     try:
-        with _connect() as conn:
-            if aura_id is not None:
-                cur = conn.execute(
-                    "DELETE FROM sessions WHERE id = ? AND aura_id = ?", (session_id, aura_id)
-                )
-            else:
-                cur = conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
-        return cur.rowcount > 0
+        if aura_id is not None:
+            n = _write("DELETE FROM history_sessions WHERE id = :i AND aura_id = :a", i=session_id, a=aura_id)
+        else:
+            n = _write("DELETE FROM history_sessions WHERE id = :i", i=session_id)
+        return n > 0
     except Exception:  # noqa: BLE001
         logger.exception("Failed to delete session")
         return False
@@ -237,16 +199,12 @@ def delete_session(session_id: str, aura_id: Optional[str] = None) -> bool:
 
 def clear_all(aura_id: Optional[str] = None) -> int:
     """Deletes stored sessions - the user's 'clear my history' control.
-    `aura_id=None` would wipe every user's history, so every caller below
+    `aura_id=None` would wipe every user's history, so every API caller
     always passes their own aura_id."""
-    init_db()
     try:
-        with _connect() as conn:
-            if aura_id is not None:
-                cur = conn.execute("DELETE FROM sessions WHERE aura_id = ?", (aura_id,))
-            else:
-                cur = conn.execute("DELETE FROM sessions")
-        return cur.rowcount
+        if aura_id is not None:
+            return _write("DELETE FROM history_sessions WHERE aura_id = :a", a=aura_id)
+        return _write("DELETE FROM history_sessions")
     except Exception:  # noqa: BLE001
         logger.exception("Failed to clear history")
         return 0

@@ -173,14 +173,14 @@ def multimodal_consistency(signals: List[Dict]) -> Dict:
 # --- Distress signal history ----------------------------------------------
 
 
-def distress_history(days: int = 7) -> Dict:
+def distress_history(days: int = 7, *, aura_id: str) -> Dict:
     """Daily distress signal over recent days, computed from real data only.
 
     A day with no check-ins produces no point. The series is never zero-filled,
     because a zero would render as a genuine low reading.
     """
-    checkins = twin_store.list_checkins()
-    signals = twin_store.list_signal_observations()
+    checkins = twin_store.list_checkins(aura_id=aura_id)
+    signals = twin_store.list_signal_observations(aura_id=aura_id)
 
     if len(checkins) < MIN_CHECKINS:
         return {
@@ -209,9 +209,9 @@ def distress_history(days: int = 7) -> Dict:
             continue
 
         twin = build_twin(
-            aura_id="local-user",
+            aura_id=aura_id,
             checkins=day_checkins,
-            onboarding=(twin_store.get_latest_baseline_answers() or {}).get("answers"),
+            onboarding=(twin_store.get_latest_baseline_answers(aura_id=aura_id) or {}).get("answers"),
         )
         negatives = [
             float(s["sentiment_scores"].get("negative", 0.0))
@@ -247,14 +247,14 @@ def distress_history(days: int = 7) -> Dict:
 # --- Assessment ------------------------------------------------------------
 
 
-def assess_current_risk() -> Dict:
+def assess_current_risk(*, aura_id: str) -> Dict:
     """The user's current Risk & Trend, from real consented data only."""
     twin_store.init_db()
 
-    baseline_entry = twin_store.get_latest_baseline_answers()
+    baseline_entry = twin_store.get_latest_baseline_answers(aura_id=aura_id)
     onboarding = baseline_entry["answers"] if baseline_entry else None
-    checkins = twin_store.list_checkins()
-    signals = twin_store.list_signal_observations()
+    checkins = twin_store.list_checkins(aura_id=aura_id)
+    signals = twin_store.list_signal_observations(aura_id=aura_id)
 
     modalities = modality_confidence(signals)
     consistency = multimodal_consistency(signals)
@@ -279,7 +279,7 @@ def assess_current_risk() -> Dict:
             ),
         }
 
-    twin = build_twin(aura_id="local-user", checkins=checkins, onboarding=onboarding)
+    twin = build_twin(aura_id=aura_id, checkins=checkins, onboarding=onboarding)
 
     negatives = [
         float(s["sentiment_scores"].get("negative", 0.0))

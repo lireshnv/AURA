@@ -1,37 +1,35 @@
 """Persistence for the Personal Well-being Digital Twin.
 
 REAL DATA ONLY. Nothing in this module generates, seeds, back-fills or
-estimates a record. Every row here originates in an action the user actually
-took: answering the baseline questionnaire, completing a check-in, or running
-an analysis session while consent was active.
+estimates a record on its own. Every row originates in an action a person
+actually took (baseline questionnaire, check-in, analysis session with
+consent), or in the explicit demo seeder, which marks its check-ins
+source="synthetic".
 
-If there is no data, queries return empty and the caller reports
-"Baseline building..." / "Not enough information yet." That absence is the
-honest answer and must never be papered over with a placeholder.
+SCOPE: every row belongs to exactly one person, keyed by their aura_id, and
+every function takes that aura_id as a REQUIRED keyword argument. This used
+to be a single shared store, which meant one victim's check-ins appeared on
+every other victim's dashboard; making the argument required means a caller
+that forgets to scope fails loudly instead of silently reading everyone's
+data.
 
-This store is entirely separate from demo_data.py. No demo profile can reach
-these tables, and no row here is synthetic.
-
-STORAGE: SQLite, for the same reason as history_store - no server, no
-credentials, single-command startup. All SQL is portable; the Postgres swap is
-a connection change and placeholder style.
+STORAGE: the main application database (the same SQLAlchemy engine as the
+ORM models - Postgres in production), so twin data survives redeploys of an
+ephemeral-disk host. Tables are prefixed `twin_` and created on first use.
+All SQL is portable between Postgres and SQLite.
 """
 import json
 import logging
-import os
-import sqlite3
 import threading
 import uuid
-from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Dict, List, Optional
 
-logger = logging.getLogger("aura.twin_store")
+from sqlalchemy import text
 
-DB_PATH = Path(
-    os.environ.get("AURA_TWIN_DB_PATH", Path.home() / ".aura" / "aura_twin.db")
-)
+from .database import engine
+
+logger = logging.getLogger("aura.twin_store")
 
 # Consent scopes. Each is granted separately and can be withdrawn separately -
 # consenting to check-ins must not silently enable camera analysis.
@@ -43,20 +41,15 @@ CONSENT_SCOPES = (
     "companion_care",    # store Companion daily-care actions (feed/water/activity)
 )
 
+_SCOPE_TABLES = {
+    "baseline": "twin_baseline_answers",
+    "checkins": "twin_checkins",
+    "emotion_signals": "twin_signal_observations",
+    "companion_care": "twin_care_actions",
+}
+
 _lock = threading.Lock()
 _initialized = False
-
-
-@contextmanager
-def _connect():
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, timeout=10)
-    conn.row_factory = sqlite3.Row
-    try:
-        yield conn
-        conn.commit()
-    finally:
-        conn.close()
 
 
 def init_db() -> None:
@@ -65,35 +58,40 @@ def init_db() -> None:
         if _initialized:
             return
         try:
-            with _connect() as conn:
-                conn.execute(
-                    """CREATE TABLE IF NOT EXISTS consent (
-                        scope       TEXT PRIMARY KEY,
+            with engine.begin() as conn:
+                conn.execute(text(
+                    """CREATE TABLE IF NOT EXISTS twin_consent (
+                        aura_id     TEXT NOT NULL,
+                        scope       TEXT NOT NULL,
                         granted     INTEGER NOT NULL DEFAULT 0,
-                        updated_at  TEXT NOT NULL
+                        updated_at  TEXT NOT NULL,
+                        PRIMARY KEY (aura_id, scope)
                     )"""
-                )
-                conn.execute(
-                    """CREATE TABLE IF NOT EXISTS baseline_answers (
+                ))
+                conn.execute(text(
+                    """CREATE TABLE IF NOT EXISTS twin_baseline_answers (
                         id          TEXT PRIMARY KEY,
+                        aura_id     TEXT NOT NULL,
                         created_at  TEXT NOT NULL,
                         answers     TEXT NOT NULL,
                         preferred_checkin_time TEXT
                     )"""
-                )
-                conn.execute(
-                    """CREATE TABLE IF NOT EXISTS checkins (
+                ))
+                conn.execute(text(
+                    """CREATE TABLE IF NOT EXISTS twin_checkins (
                         id          TEXT PRIMARY KEY,
+                        aura_id     TEXT NOT NULL,
                         created_at  TEXT NOT NULL,
                         values_json TEXT NOT NULL,
                         note        TEXT,
                         skipped     INTEGER NOT NULL DEFAULT 0,
                         source      TEXT NOT NULL DEFAULT 'user'
                     )"""
-                )
-                conn.execute(
-                    """CREATE TABLE IF NOT EXISTS signal_observations (
+                ))
+                conn.execute(text(
+                    """CREATE TABLE IF NOT EXISTS twin_signal_observations (
                         id                 TEXT PRIMARY KEY,
+                        aura_id            TEXT NOT NULL,
                         created_at         TEXT NOT NULL,
                         emotion_dominant   TEXT,
                         emotion_confidence REAL,
@@ -103,107 +101,116 @@ def init_db() -> None:
                         voice_available    INTEGER DEFAULT 0,
                         text_available     INTEGER DEFAULT 0,
                         modalities         TEXT,
-                        reliability        REAL,
+                        reliability        TEXT,
                         session_id         TEXT
                     )"""
-                )
-                conn.execute(
-                    """CREATE TABLE IF NOT EXISTS care_actions (
+                ))
+                conn.execute(text(
+                    """CREATE TABLE IF NOT EXISTS twin_care_actions (
                         id            TEXT PRIMARY KEY,
+                        aura_id       TEXT NOT NULL,
                         created_at    TEXT NOT NULL,
                         kind          TEXT NOT NULL,
                         activity_type TEXT
                     )"""
-                )
-                for table, column in (
-                    ("checkins", "created_at"),
-                    ("signal_observations", "created_at"),
-                    ("care_actions", "created_at"),
-                ):
-                    conn.execute(
-                        f"CREATE INDEX IF NOT EXISTS idx_{table}_created "
-                        f"ON {table} ({column} DESC)"
-                    )
+                ))
+                for table in ("twin_checkins", "twin_signal_observations", "twin_care_actions", "twin_baseline_answers"):
+                    conn.execute(text(
+                        f"CREATE INDEX IF NOT EXISTS idx_{table}_owner ON {table} (aura_id, created_at)"
+                    ))
             _initialized = True
-            logger.info("Digital twin database ready at %s", DB_PATH)
+            logger.info("Digital twin tables ready (main database)")
         except Exception:  # noqa: BLE001 - persistence must never break analysis
-            logger.exception("Failed to initialise digital twin database")
+            logger.exception("Failed to initialise digital twin tables")
 
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _cutoff(days: Optional[int]) -> Optional[str]:
+    if days is None:
+        return None
+    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+
+def _rows(sql: str, **params) -> list:
+    init_db()
+    with engine.connect() as conn:
+        return conn.execute(text(sql), params).mappings().all()
+
+
+def _write(sql: str, **params) -> int:
+    init_db()
+    with engine.begin() as conn:
+        return conn.execute(text(sql), params).rowcount
+
+
 # --- Consent ---------------------------------------------------------------
 
 
-def get_consent() -> Dict[str, bool]:
+def get_consent(*, aura_id: str) -> Dict[str, bool]:
     """Current consent state. Every scope defaults to FALSE (opt-in)."""
-    init_db()
     state = {scope: False for scope in CONSENT_SCOPES}
     try:
-        with _connect() as conn:
-            for row in conn.execute("SELECT scope, granted FROM consent").fetchall():
-                if row["scope"] in state:
-                    state[row["scope"]] = bool(row["granted"])
+        for row in _rows("SELECT scope, granted FROM twin_consent WHERE aura_id = :a", a=aura_id):
+            if row["scope"] in state:
+                state[row["scope"]] = bool(row["granted"])
     except Exception:  # noqa: BLE001
         logger.exception("Failed to read consent")
     return state
 
 
-def set_consent(scope: str, granted: bool) -> bool:
+def set_consent(scope: str, granted: bool, *, aura_id: str) -> bool:
     if scope not in CONSENT_SCOPES:
         return False
-    init_db()
     try:
-        with _connect() as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO consent (scope, granted, updated_at) VALUES (?,?,?)",
-                (scope, 1 if granted else 0, _now_iso()),
-            )
+        _write(
+            "INSERT INTO twin_consent (aura_id, scope, granted, updated_at) VALUES (:a, :s, :g, :t) "
+            "ON CONFLICT (aura_id, scope) DO UPDATE SET granted = excluded.granted, updated_at = excluded.updated_at",
+            a=aura_id, s=scope, g=1 if granted else 0, t=_now_iso(),
+        )
         return True
     except Exception:  # noqa: BLE001
         logger.exception("Failed to write consent")
         return False
 
 
-def has_consent(scope: str) -> bool:
-    return get_consent().get(scope, False)
+def has_consent(scope: str, *, aura_id: str) -> bool:
+    return get_consent(aura_id=aura_id).get(scope, False)
 
 
 # --- Baseline questionnaire ------------------------------------------------
 
 
 def save_baseline_answers(
-    answers: Dict[str, float], preferred_checkin_time: Optional[str] = None
+    answers: Dict[str, float], preferred_checkin_time: Optional[str] = None, *, aura_id: str
 ) -> Optional[str]:
-    """Stores the user's baseline questionnaire. Requires 'baseline' consent."""
-    if not has_consent("baseline"):
+    """Stores the person's baseline questionnaire. Requires 'baseline' consent."""
+    if not has_consent("baseline", aura_id=aura_id):
         return None
-    init_db()
     entry_id = str(uuid.uuid4())
     try:
-        with _connect() as conn:
-            conn.execute(
-                "INSERT INTO baseline_answers (id, created_at, answers, preferred_checkin_time) "
-                "VALUES (?,?,?,?)",
-                (entry_id, _now_iso(), json.dumps(answers), preferred_checkin_time),
-            )
+        _write(
+            "INSERT INTO twin_baseline_answers (id, aura_id, created_at, answers, preferred_checkin_time) "
+            "VALUES (:id, :a, :t, :ans, :p)",
+            id=entry_id, a=aura_id, t=_now_iso(), ans=json.dumps(answers), p=preferred_checkin_time,
+        )
         return entry_id
     except Exception:  # noqa: BLE001
         logger.exception("Failed to save baseline answers")
         return None
 
 
-def get_latest_baseline_answers() -> Optional[Dict]:
-    init_db()
+def get_latest_baseline_answers(*, aura_id: str) -> Optional[Dict]:
     try:
-        with _connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM baseline_answers ORDER BY created_at DESC LIMIT 1"
-            ).fetchone()
-        if not row:
+        rows = _rows(
+            "SELECT * FROM twin_baseline_answers WHERE aura_id = :a ORDER BY created_at DESC LIMIT 1",
+            a=aura_id,
+        )
+        if not rows:
             return None
+        row = rows[0]
         return {
             "id": row["id"],
             "created_at": row["created_at"],
@@ -224,50 +231,45 @@ def save_checkin(
     skipped: bool = False,
     created_at: Optional[str] = None,
     source: str = "user",
+    *,
+    aura_id: str,
 ) -> Optional[str]:
-    """Stores one real check-in. Requires 'checkins' consent.
+    """Stores one check-in. Requires 'checkins' consent.
 
     A skipped check-in is still recorded (with no values) because *engagement*
     is a legitimate signal - but it contributes no self-report data.
 
-    `created_at`/`source` are only overridden by the synthetic-data seeder
-    (see aura_api.py's /dev/seed-demo-data) so demo check-ins can be spread
-    across past days instead of all landing at the same instant; every normal
-    caller leaves them at the defaults (now, "user").
+    `created_at`/`source` are only overridden by the demo seeder so seeded
+    check-ins can be spread across past days; every normal caller leaves them
+    at the defaults (now, "user").
     """
-    if not has_consent("checkins"):
+    if not has_consent("checkins", aura_id=aura_id):
         return None
-    init_db()
     entry_id = str(uuid.uuid4())
     try:
-        with _connect() as conn:
-            conn.execute(
-                "INSERT INTO checkins (id, created_at, values_json, note, skipped, source) "
-                "VALUES (?,?,?,?,?,?)",
-                (entry_id, created_at or _now_iso(), json.dumps(values or {}), note,
-                 1 if skipped else 0, source),
-            )
+        _write(
+            "INSERT INTO twin_checkins (id, aura_id, created_at, values_json, note, skipped, source) "
+            "VALUES (:id, :a, :t, :v, :n, :s, :src)",
+            id=entry_id, a=aura_id, t=created_at or _now_iso(), v=json.dumps(values or {}),
+            n=note, s=1 if skipped else 0, src=source,
+        )
         return entry_id
     except Exception:  # noqa: BLE001
         logger.exception("Failed to save check-in")
         return None
 
 
-def list_checkins(days: Optional[int] = None) -> List[Dict]:
-    """Real check-ins, oldest first. Returns [] when there are none."""
-    init_db()
+def list_checkins(days: Optional[int] = None, *, aura_id: str) -> List[Dict]:
+    """This person's check-ins, oldest first. Returns [] when there are none."""
     try:
-        with _connect() as conn:
-            if days is None:
-                rows = conn.execute(
-                    "SELECT * FROM checkins ORDER BY created_at ASC"
-                ).fetchall()
-            else:
-                cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-                rows = conn.execute(
-                    "SELECT * FROM checkins WHERE created_at >= ? ORDER BY created_at ASC",
-                    (cutoff,),
-                ).fetchall()
+        cut = _cutoff(days)
+        if cut is None:
+            rows = _rows("SELECT * FROM twin_checkins WHERE aura_id = :a ORDER BY created_at ASC", a=aura_id)
+        else:
+            rows = _rows(
+                "SELECT * FROM twin_checkins WHERE aura_id = :a AND created_at >= :c ORDER BY created_at ASC",
+                a=aura_id, c=cut,
+            )
         result = []
         for row in rows:
             entry = {
@@ -289,51 +291,39 @@ def list_checkins(days: Optional[int] = None) -> List[Dict]:
 CARE_KINDS = ("feed", "water", "activity")
 
 
-def save_care_action(kind: str, activity_type: Optional[str] = None) -> Optional[str]:
-    """Stores one real Companion daily-care action. Requires 'companion_care'
-    consent. `kind` is one of CARE_KINDS - check-ins are recorded through the
-    existing checkins table instead, not duplicated here."""
+def save_care_action(kind: str, activity_type: Optional[str] = None, *, aura_id: str) -> Optional[str]:
+    """Stores one Companion daily-care action. Requires 'companion_care'
+    consent. Check-ins are recorded through the check-ins table instead."""
     if kind not in CARE_KINDS:
         return None
-    if not has_consent("companion_care"):
+    if not has_consent("companion_care", aura_id=aura_id):
         return None
-    init_db()
     entry_id = str(uuid.uuid4())
     try:
-        with _connect() as conn:
-            conn.execute(
-                "INSERT INTO care_actions (id, created_at, kind, activity_type) "
-                "VALUES (?,?,?,?)",
-                (entry_id, _now_iso(), kind, activity_type),
-            )
+        _write(
+            "INSERT INTO twin_care_actions (id, aura_id, created_at, kind, activity_type) "
+            "VALUES (:id, :a, :t, :k, :at)",
+            id=entry_id, a=aura_id, t=_now_iso(), k=kind, at=activity_type,
+        )
         return entry_id
     except Exception:  # noqa: BLE001
         logger.exception("Failed to save care action")
         return None
 
 
-def list_care_actions(days: Optional[int] = None) -> List[Dict]:
-    """Real completed care actions, oldest first. Returns [] when there are none."""
-    init_db()
+def list_care_actions(days: Optional[int] = None, *, aura_id: str) -> List[Dict]:
+    """This person's completed care actions, oldest first."""
     try:
-        with _connect() as conn:
-            if days is None:
-                rows = conn.execute(
-                    "SELECT * FROM care_actions ORDER BY created_at ASC"
-                ).fetchall()
-            else:
-                cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-                rows = conn.execute(
-                    "SELECT * FROM care_actions WHERE created_at >= ? ORDER BY created_at ASC",
-                    (cutoff,),
-                ).fetchall()
+        cut = _cutoff(days)
+        if cut is None:
+            rows = _rows("SELECT * FROM twin_care_actions WHERE aura_id = :a ORDER BY created_at ASC", a=aura_id)
+        else:
+            rows = _rows(
+                "SELECT * FROM twin_care_actions WHERE aura_id = :a AND created_at >= :c ORDER BY created_at ASC",
+                a=aura_id, c=cut,
+            )
         return [
-            {
-                "id": r["id"],
-                "created_at": r["created_at"],
-                "kind": r["kind"],
-                "activity_type": r["activity_type"],
-            }
+            {"id": r["id"], "created_at": r["created_at"], "kind": r["kind"], "activity_type": r["activity_type"]}
             for r in rows
         ]
     except Exception:  # noqa: BLE001
@@ -341,66 +331,63 @@ def list_care_actions(days: Optional[int] = None) -> List[Dict]:
         return []
 
 
-# --- Signal observations (from the existing emotion dashboard) -------------
+# --- Signal observations (from the emotion dashboard) ----------------------
 
 
-def save_signal_observation(record: Dict, created_at: Optional[str] = None) -> Optional[str]:
+def save_signal_observation(record: Dict, created_at: Optional[str] = None, *, aura_id: str) -> Optional[str]:
     """Stores one structured analysis result. Requires 'emotion_signals' consent.
 
     Only DERIVED signals are stored - scores, labels, reliability. No frames,
     no audio, no transcript text.
-
-    `created_at` override exists only for the synthetic-data seeder, same
-    reasoning as save_checkin() above.
     """
-    if not has_consent("emotion_signals"):
+    if not has_consent("emotion_signals", aura_id=aura_id):
         return None
-    init_db()
     entry_id = str(uuid.uuid4())
+    reliability = record.get("reliability")
     try:
-        with _connect() as conn:
-            conn.execute(
-                """INSERT INTO signal_observations (
-                    id, created_at, emotion_dominant, emotion_confidence, emotion_scores,
-                    sentiment_dominant, sentiment_scores, voice_available, text_available,
-                    modalities, reliability, session_id
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (
-                    entry_id,
-                    created_at or _now_iso(),
-                    record.get("emotion_dominant"),
-                    record.get("emotion_confidence"),
-                    json.dumps(record.get("emotion_scores") or {}),
-                    record.get("sentiment_dominant"),
-                    json.dumps(record.get("sentiment_scores") or {}),
-                    1 if record.get("voice_available") else 0,
-                    1 if record.get("text_available") else 0,
-                    json.dumps(record.get("modalities") or []),
-                    record.get("reliability"),
-                    record.get("session_id"),
-                ),
-            )
+        _write(
+            """INSERT INTO twin_signal_observations (
+                id, aura_id, created_at, emotion_dominant, emotion_confidence, emotion_scores,
+                sentiment_dominant, sentiment_scores, voice_available, text_available,
+                modalities, reliability, session_id
+            ) VALUES (:id, :a, :t, :ed, :ec, :es, :sd, :ss, :va, :ta, :m, :r, :sid)""",
+            id=entry_id, a=aura_id, t=created_at or _now_iso(),
+            ed=record.get("emotion_dominant"), ec=record.get("emotion_confidence"),
+            es=json.dumps(record.get("emotion_scores") or {}),
+            sd=record.get("sentiment_dominant"), ss=json.dumps(record.get("sentiment_scores") or {}),
+            va=1 if record.get("voice_available") else 0, ta=1 if record.get("text_available") else 0,
+            m=json.dumps(record.get("modalities") or []),
+            r=None if reliability is None else str(reliability),
+            sid=record.get("session_id"),
+        )
         return entry_id
     except Exception:  # noqa: BLE001
         logger.exception("Failed to save signal observation")
         return None
 
 
-def list_signal_observations(days: Optional[int] = None) -> List[Dict]:
-    init_db()
+def _reliability_out(value):
+    if value is None:
+        return None
     try:
-        with _connect() as conn:
-            if days is None:
-                rows = conn.execute(
-                    "SELECT * FROM signal_observations ORDER BY created_at ASC"
-                ).fetchall()
-            else:
-                cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-                rows = conn.execute(
-                    "SELECT * FROM signal_observations WHERE created_at >= ? "
-                    "ORDER BY created_at ASC",
-                    (cutoff,),
-                ).fetchall()
+        return float(value)
+    except (TypeError, ValueError):
+        return value
+
+
+def list_signal_observations(days: Optional[int] = None, *, aura_id: str) -> List[Dict]:
+    try:
+        cut = _cutoff(days)
+        if cut is None:
+            rows = _rows(
+                "SELECT * FROM twin_signal_observations WHERE aura_id = :a ORDER BY created_at ASC", a=aura_id
+            )
+        else:
+            rows = _rows(
+                "SELECT * FROM twin_signal_observations WHERE aura_id = :a AND created_at >= :c "
+                "ORDER BY created_at ASC",
+                a=aura_id, c=cut,
+            )
         return [
             {
                 "id": r["id"],
@@ -413,7 +400,7 @@ def list_signal_observations(days: Optional[int] = None) -> List[Dict]:
                 "voice_available": bool(r["voice_available"]),
                 "text_available": bool(r["text_available"]),
                 "modalities": json.loads(r["modalities"] or "[]"),
-                "reliability": r["reliability"],
+                "reliability": _reliability_out(r["reliability"]),
                 "session_id": r["session_id"],
             }
             for r in rows
@@ -423,37 +410,42 @@ def list_signal_observations(days: Optional[int] = None) -> List[Dict]:
         return []
 
 
+def has_any_data(*, aura_id: str) -> bool:
+    """Whether this person has any stored twin data at all (cheap check)."""
+    try:
+        for table in ("twin_checkins", "twin_signal_observations", "twin_baseline_answers"):
+            if _rows(f"SELECT 1 FROM {table} WHERE aura_id = :a LIMIT 1", a=aura_id):
+                return True
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to check for stored data")
+    return False
+
+
 # --- Data control ----------------------------------------------------------
 
 
-def data_summary() -> Dict:
-    """What is actually stored, for the Privacy Center."""
-    init_db()
+def data_summary(*, aura_id: str) -> Dict:
+    """What is actually stored about this person, for the Privacy Center."""
     try:
-        with _connect() as conn:
-            checkins = conn.execute("SELECT COUNT(*) c FROM checkins").fetchone()["c"]
-            signals = conn.execute(
-                "SELECT COUNT(*) c FROM signal_observations"
-            ).fetchone()["c"]
-            baselines = conn.execute(
-                "SELECT COUNT(*) c FROM baseline_answers"
-            ).fetchone()["c"]
-            care_actions = conn.execute(
-                "SELECT COUNT(*) c FROM care_actions"
-            ).fetchone()["c"]
-            earliest = conn.execute(
-                "SELECT MIN(created_at) m FROM ("
-                "  SELECT created_at FROM checkins "
-                "  UNION ALL SELECT created_at FROM signal_observations "
-                "  UNION ALL SELECT created_at FROM care_actions)"
-            ).fetchone()["m"]
+        counts = {}
+        for key, table in (
+            ("checkins", "twin_checkins"),
+            ("signal_observations", "twin_signal_observations"),
+            ("baseline_submissions", "twin_baseline_answers"),
+            ("care_actions", "twin_care_actions"),
+        ):
+            counts[key] = _rows(f"SELECT COUNT(*) AS c FROM {table} WHERE aura_id = :a", a=aura_id)[0]["c"]
+        earliest = _rows(
+            "SELECT MIN(created_at) AS m FROM ("
+            "  SELECT created_at FROM twin_checkins WHERE aura_id = :a"
+            "  UNION ALL SELECT created_at FROM twin_signal_observations WHERE aura_id = :a"
+            "  UNION ALL SELECT created_at FROM twin_care_actions WHERE aura_id = :a) AS t",
+            a=aura_id,
+        )[0]["m"]
         return {
-            "checkins": checkins,
-            "signal_observations": signals,
-            "baseline_submissions": baselines,
-            "care_actions": care_actions,
+            **counts,
             "earliest_record": earliest,
-            "storage_location": str(DB_PATH),
+            "storage_location": "AURA application database",
             "raw_media_stored": False,
             "transcript_text_stored": False,
         }
@@ -462,55 +454,38 @@ def data_summary() -> Dict:
         return {}
 
 
-def delete_scope(scope: str) -> int:
-    """Permanently deletes one category of stored data."""
-    init_db()
-    table = {
-        "baseline": "baseline_answers",
-        "checkins": "checkins",
-        "emotion_signals": "signal_observations",
-        "companion_care": "care_actions",
-    }.get(scope)
+def delete_scope(scope: str, *, aura_id: str) -> int:
+    """Permanently deletes one category of this person's stored data."""
+    table = _SCOPE_TABLES.get(scope)
     if not table:
         return 0
     try:
-        with _connect() as conn:
-            cur = conn.execute(f"DELETE FROM {table}")
-        return cur.rowcount
+        return _write(f"DELETE FROM {table} WHERE aura_id = :a", a=aura_id)
     except Exception:  # noqa: BLE001
         logger.exception("Failed to delete scope %s", scope)
         return 0
 
 
-def delete_all() -> Dict[str, int]:
-    """Deletes every stored record and revokes all consent."""
-    init_db()
+def delete_all(*, aura_id: str) -> Dict[str, int]:
+    """Deletes every stored record for this person and revokes their consent."""
     deleted = {}
     try:
-        with _connect() as conn:
-            for scope, table in (
-                ("baseline", "baseline_answers"),
-                ("checkins", "checkins"),
-                ("emotion_signals", "signal_observations"),
-                ("companion_care", "care_actions"),
-            ):
-                cur = conn.execute(f"DELETE FROM {table}")
-                deleted[scope] = cur.rowcount
-            conn.execute("DELETE FROM consent")
-        return deleted
+        for scope, table in _SCOPE_TABLES.items():
+            deleted[scope] = _write(f"DELETE FROM {table} WHERE aura_id = :a", a=aura_id)
+        _write("DELETE FROM twin_consent WHERE aura_id = :a", a=aura_id)
     except Exception:  # noqa: BLE001
         logger.exception("Failed to delete all data")
-        return deleted
+    return deleted
 
 
-def export_all() -> Dict:
-    """Full export of everything stored about the user."""
+def export_all(*, aura_id: str) -> Dict:
+    """Full export of everything stored about this person."""
     return {
         "exported_at": _now_iso(),
-        "consent": get_consent(),
-        "baseline": get_latest_baseline_answers(),
-        "checkins": list_checkins(),
-        "signal_observations": list_signal_observations(),
-        "care_actions": list_care_actions(),
+        "consent": get_consent(aura_id=aura_id),
+        "baseline": get_latest_baseline_answers(aura_id=aura_id),
+        "checkins": list_checkins(aura_id=aura_id),
+        "signal_observations": list_signal_observations(aura_id=aura_id),
+        "care_actions": list_care_actions(aura_id=aura_id),
         "note": "Raw video, audio and transcript text are never stored and cannot appear here.",
     }

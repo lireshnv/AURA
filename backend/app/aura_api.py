@@ -38,7 +38,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from . import ivrs_store, risk_service, twin_store
+from . import demo_seed, ivrs_store, risk_service, twin_store
 from .core.config import settings
 from .database import get_db
 from .database.models import (
@@ -200,10 +200,10 @@ def _assess(aura_id: str) -> Optional[Dict]:
     Returns None when that person has no usable data, so callers can report
     absence rather than rendering an empty-but-plausible profile.
     """
-    baseline_entry = twin_store.get_latest_baseline_answers()
+    baseline_entry = twin_store.get_latest_baseline_answers(aura_id=aura_id)
     onboarding = baseline_entry["answers"] if baseline_entry else None
-    checkins = twin_store.list_checkins()
-    signals = twin_store.list_signal_observations()
+    checkins = twin_store.list_checkins(aura_id=aura_id)
+    signals = twin_store.list_signal_observations(aura_id=aura_id)
 
     if not checkins and not signals and not onboarding:
         return None
@@ -241,30 +241,14 @@ def _assess(aura_id: str) -> Optional[Dict]:
     }
 
 
-def _known_aura_ids(candidate_ids: Optional[Iterable[str]] = None) -> List[str]:
-    """Which of `candidate_ids` currently have real stored data.
+def _known_aura_ids(candidate_ids: Iterable[str]) -> List[str]:
+    """Which of `candidate_ids` have real stored well-being data of their own.
 
-    twin_store is a single shared store, not scoped per aura_id (see the
-    module docstring's SCOPE NOTE) - there is exactly one well-being dataset,
-    and _assess() already returns it for whichever aura_id asks. So "does
-    this aura_id have data" really means "does ANY data exist at all", for
-    every candidate consistently - not a hardcoded placeholder id that can
-    never match a real account (that was the previous bug here: it returned
-    the literal string "local-user", which no real AURA-XXXX account is ever
-    assigned, so a counsellor's case queue was always empty for any real
-    victim even after seeding data).
-
-    `candidate_ids=None` preserves the original single-identity behaviour for
-    any future caller that doesn't have a specific list to check.
+    twin_store is scoped per aura_id, so each candidate is checked on its own
+    data - one person having data never makes another person's empty case
+    look populated.
     """
-    has_data = bool(
-        twin_store.list_checkins()
-        or twin_store.list_signal_observations()
-        or twin_store.get_latest_baseline_answers()
-    )
-    if not has_data:
-        return []
-    return list(candidate_ids) if candidate_ids is not None else [LOCAL_AURA_ID]
+    return [a for a in candidate_ids if a and twin_store.has_any_data(aura_id=a)]
 
 
 # --- Endpoints ------------------------------------------------------------
@@ -1302,65 +1286,15 @@ async def seed_demo_data(
             status_code=403, detail="Synthetic data seeding is disabled in production."
         )
 
-    for scope in ("baseline", "checkins", "emotion_signals"):
-        twin_store.set_consent(scope, True)
-        # Re-seeding replaces the previous synthetic run rather than piling
-        # more rows on top of it, so the numbers stay predictable to look at.
-        twin_store.delete_scope(scope)
-
     now = datetime.now(timezone.utc)
     rng = random.Random()
 
-    baseline_answers = {dim: round(rng.uniform(6.5, 8.5), 1) for dim in BASELINE_DIMENSIONS}
-    twin_store.save_baseline_answers(baseline_answers, preferred_checkin_time="20:00")
-
-    # build_baseline() (digital_twin.py) treats the FIRST 14 check-ins
-    # (BASELINE_TARGET_OBSERVATIONS) as "what's normal for this person", and
-    # only the last 7 days as "current state" - so a believable elevated case
-    # needs an established stable period, not just an overall downward slope,
-    # otherwise the decline gets absorbed into the baseline average itself
-    # and the deviation never shows up.
-    #
-    # 18 stable check-ins (days 25-8 ago) establish a solid, good baseline.
-    checkins_written = 0
-    for days_ago in range(25, 7, -1):
-        values = {
-            dim: round(max(0.0, min(10.0, baseline_answers[dim] + rng.uniform(-0.5, 0.5))), 1)
-            for dim in BASELINE_DIMENSIONS
-        }
-        created_at = (now - timedelta(days=days_ago, hours=rng.randint(0, 5))).isoformat()
-        if twin_store.save_checkin(values, note=None, created_at=created_at, source="synthetic"):
-            checkins_written += 1
-
-    # Then a sharp decline in the last 7 days - outside the baseline window,
-    # squarely inside the "current state" window - so deviation/trend/risk
-    # all move together, the way an actual worsening case would.
-    for days_ago in range(7, -1, -1):
-        drop = 3.0 + (7 - days_ago) * 0.35
-        values = {
-            dim: round(max(0.0, min(10.0, baseline_answers[dim] - drop + rng.uniform(-0.4, 0.4))), 1)
-            for dim in BASELINE_DIMENSIONS
-        }
-        created_at = (now - timedelta(days=days_ago, hours=rng.randint(0, 5))).isoformat()
-        if twin_store.save_checkin(values, note=None, created_at=created_at, source="synthetic"):
-            checkins_written += 1
-
-    signals_written = 0
-    for days_ago in range(6, -1, -2):
-        negative = round(min(0.9, 0.4 + (6 - days_ago) * 0.08 + rng.uniform(-0.05, 0.05)), 2)
-        created_at = (now - timedelta(days=days_ago, hours=rng.randint(0, 5))).isoformat()
-        record = {
-            "emotion_dominant": rng.choice(["neutral", "sad", "calm"]),
-            "emotion_confidence": round(rng.uniform(55, 85), 1),
-            "sentiment_dominant": "negative" if negative > 0.5 else "neutral",
-            "sentiment_scores": {"negative": negative, "neutral": round(1 - negative, 2), "positive": 0.0},
-            "voice_available": True,
-            "text_available": True,
-            "modalities": ["face", "voice", "text"],
-            "reliability": "synthetic-demo",
-        }
-        if twin_store.save_signal_observation(record, created_at=created_at):
-            signals_written += 1
+    # Per-victim synthetic well-being history (each victim a different
+    # trajectory), written through the real, aura_id-scoped storage paths.
+    victims = db.query(User).filter(User.role == "victim").all()
+    seeded = {v.aura_id: demo_seed.seed_victim(v.aura_id, i) for i, v in enumerate(victims) if v.aura_id}
+    checkins_written = sum(c["checkins"] for c in seeded.values())
+    signals_written = sum(c["signals"] for c in seeded.values())
 
     # --- IVRS calls: one per victim account, placed by one of their real
     # assigned counsellors, with a real reason/opening line and a short
